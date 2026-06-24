@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ItemCategory, StorageLocation } from "@prisma/client";
-import { Search } from "lucide-react";
+import { Search, SlidersHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -104,6 +104,23 @@ function parseReceiptRawFromNotes(notes: string | null) {
   return line.replace(/^OCR_RAW:\s*/i, "").trim() || null;
 }
 
+function parseNoteValue(notes: string | null, key: string) {
+  if (!notes) {
+    return null;
+  }
+
+  const line = notes
+    .split(/\r?\n/)
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${key}:`));
+
+  if (!line) {
+    return null;
+  }
+
+  return line.replace(new RegExp(`^${key}:\\s*`, "i"), "").trim() || null;
+}
+
 export function InventoryView({ initialItems }: Props) {
   const searchParams = useSearchParams();
   const [items, setItems] = useState(initialItems);
@@ -113,16 +130,33 @@ export function InventoryView({ initialItems }: Props) {
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [locationFilter, setLocationFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState<"name" | "expiration">("expiration");
+  const [receiptOnlyFilter, setReceiptOnlyFilter] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const expiringFilterOn = searchParams.get("filter") === "expiring";
   const { inventoryView, search, setInventoryView, setSearch, language } = useUiStore();
   const tr = (en: string, zh: string) => (language === "zh" ? zh : en);
   const categoryDefaults = getFoodCategoryDefaults(form.category);
   const suggestedExpirationDate = formatDateInput(getSuggestedExpirationDate(form.category, parseDateInput(form.purchaseDate)));
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia("(max-width: 767px)");
+    const syncMobile = () => setIsMobile(mediaQuery.matches);
+    syncMobile();
+    mediaQuery.addEventListener("change", syncMobile);
+
+    return () => mediaQuery.removeEventListener("change", syncMobile);
+  }, []);
+
   const filtered = useMemo(() => {
     return [...items]
       .filter((item) => (categoryFilter === "ALL" ? true : item.category === categoryFilter))
       .filter((item) => (locationFilter === "ALL" ? true : item.storageLocation === locationFilter))
+      .filter((item) => (receiptOnlyFilter ? item.notes?.includes("OCR_RAW:") : true))
       .filter((item) => {
         if (!expiringFilterOn) {
           return true;
@@ -141,24 +175,37 @@ export function InventoryView({ initialItems }: Props) {
 
         return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime();
       });
-  }, [items, categoryFilter, locationFilter, expiringFilterOn, search, sortBy]);
+  }, [items, categoryFilter, locationFilter, receiptOnlyFilter, expiringFilterOn, search, sortBy]);
 
   const readableNamesById = useMemo(() => {
     const map = new Map<
       string,
       {
         primaryName: string;
+        fallbackName: string;
+        needsReview: boolean;
         rawName: string | null;
       }
     >();
 
     for (const item of items) {
       const rawName = parseReceiptRawFromNotes(item.notes);
-      const normalized = normalizeReceiptItemName(rawName || item.name);
-      const primaryName = language === "zh" ? normalized.displayNameZh || normalized.displayName : normalized.displayName;
+      const noteDisplayEn = parseNoteValue(item.notes, "OCR_DISPLAY_EN");
+      const noteDisplayZh = parseNoteValue(item.notes, "OCR_DISPLAY_ZH");
+      const noteNormalized = parseNoteValue(item.notes, "OCR_NORMALIZED");
+      const noteNeedsReview = parseNoteValue(item.notes, "OCR_NEEDS_REVIEW") === "true";
+      const normalized = normalizeReceiptItemName(rawName || noteNormalized || item.name);
+      const fallbackName = noteNormalized || normalized.normalizedName || normalized.displayName || item.name;
+
+      const primaryName =
+        language === "zh"
+          ? noteDisplayZh || normalized.displayNameZh || noteDisplayEn || normalized.displayName || fallbackName
+          : noteDisplayEn || normalized.displayName || noteDisplayZh || normalized.displayNameZh || fallbackName;
 
       map.set(item.id, {
         primaryName: primaryName || item.name,
+        fallbackName,
+        needsReview: noteNeedsReview || normalized.needsReview,
         rawName
       });
     }
@@ -297,48 +344,133 @@ export function InventoryView({ initialItems }: Props) {
         </Card>
       ) : null}
 
-      <div className="flex flex-col gap-3 md:flex-row md:items-center">
+      <div className="rounded-2xl border bg-card p-3">
+        <div className="mb-3 flex flex-wrap gap-2">
+          <Button asChild type="button" className="h-10">
+            <Link href={{ pathname: "/receipts", query: { capture: "1" } }}>{tr("Scan Receipt", "扫描小票")}</Link>
+          </Button>
+          <Button asChild type="button" variant="outline" className="h-10">
+            <Link href="/inventory?filter=expiring">{tr("See Expiring Soon", "查看快过期")}</Link>
+          </Button>
+          <details className="ml-auto">
+            <summary className="h-10 cursor-pointer list-none rounded-md border border-input bg-background px-3 py-2 text-sm">{tr("More", "更多")}</summary>
+            <div className="mt-2 w-44 rounded-md border bg-background p-2 shadow-md">
+              <Button className="h-9 w-full justify-start" variant="ghost" onClick={openCreateEditor}>+ {tr("Add Ingredient", "添加食材")}</Button>
+            </div>
+          </details>
+        </div>
+
+        <div className="flex flex-col gap-3 md:flex-row md:items-center">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
-          <Input className="pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tr("Search food", "搜索食材")} />
+          <Input className="h-10 pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tr("Search inventory", "搜索库存")} />
         </div>
-        <select
-          className="h-11 rounded-md border border-input bg-background px-3"
-          value={categoryFilter}
-          onChange={(event) => setCategoryFilter(event.target.value)}
-        >
-          <option value="ALL">{tr("All categories", "全部分类")}</option>
-          {categories.map((category) => (
-            <option key={category} value={category}>
-              {category.replace("_", " ")}
-            </option>
-          ))}
-        </select>
-        <select
-          className="h-11 rounded-md border border-input bg-background px-3"
-          value={locationFilter}
-          onChange={(event) => setLocationFilter(event.target.value)}
-        >
-          <option value="ALL">{tr("All locations", "全部位置")}</option>
-          {locations.map((location) => (
-            <option key={location} value={location}>
-              {location.replace("_", " ")}
-            </option>
-          ))}
-        </select>
-        <select
-          className="h-11 rounded-md border border-input bg-background px-3"
-          value={sortBy}
-          onChange={(event) => setSortBy(event.target.value as "name" | "expiration")}
-        >
-          <option value="expiration">{tr("Sort by expiration", "按过期时间")}</option>
-          <option value="name">{tr("Sort by name", "按名称")}</option>
-        </select>
+        {isMobile ? (
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" className="h-9" onClick={() => setIsFilterPanelOpen(true)}>
+              <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" />
+              {tr("Filter", "筛选")}
+            </Button>
+            <Button type="button" variant={expiringFilterOn ? "default" : "outline"} size="sm" className="h-9" asChild>
+              <Link href={expiringFilterOn ? "/inventory" : "/inventory?filter=expiring"}>{tr("Expiring", "快过期")}</Link>
+            </Button>
+            <Button type="button" variant={receiptOnlyFilter ? "default" : "outline"} size="sm" className="h-9" onClick={() => setReceiptOnlyFilter((current) => !current)}>
+              {tr("Receipt items", "小票食材")}
+            </Button>
+          </div>
+        ) : (
+          <>
+            <select
+              className="h-11 rounded-md border border-input bg-background px-3"
+              value={categoryFilter}
+              onChange={(event) => setCategoryFilter(event.target.value)}
+            >
+              <option value="ALL">{tr("All categories", "全部分类")}</option>
+              {categories.map((category) => (
+                <option key={category} value={category}>
+                  {category.replace("_", " ")}
+                </option>
+              ))}
+            </select>
+            <select
+              className="h-11 rounded-md border border-input bg-background px-3"
+              value={locationFilter}
+              onChange={(event) => setLocationFilter(event.target.value)}
+            >
+              <option value="ALL">{tr("All locations", "全部位置")}</option>
+              {locations.map((location) => (
+                <option key={location} value={location}>
+                  {location.replace("_", " ")}
+                </option>
+              ))}
+            </select>
+            <select
+              className="h-11 rounded-md border border-input bg-background px-3"
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as "name" | "expiration")}
+            >
+              <option value="expiration">{tr("Sort by expiration", "按过期时间")}</option>
+              <option value="name">{tr("Sort by name", "按名称")}</option>
+            </select>
+          </>
+        )}
         <Button variant="secondary" onClick={() => setInventoryView(inventoryView === "cards" ? "table" : "cards")}>
           {inventoryView === "cards" ? tr("Table View", "表格视图") : tr("Card View", "卡片视图")}
         </Button>
-        <Button onClick={openCreateEditor}>+ {tr("Add Ingredient", "添加食材")}</Button>
+        </div>
+
+        {(categoryFilter !== "ALL" || locationFilter !== "ALL" || sortBy !== "expiration" || receiptOnlyFilter) && isMobile ? (
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            {categoryFilter !== "ALL" ? <span className="rounded-full bg-muted px-2 py-1">{tr("Category", "分类")}: {categoryFilter.replace("_", " ")}</span> : null}
+            {locationFilter !== "ALL" ? <span className="rounded-full bg-muted px-2 py-1">{tr("Location", "位置")}: {locationFilter.replace("_", " ")}</span> : null}
+            {sortBy !== "expiration" ? <span className="rounded-full bg-muted px-2 py-1">{tr("Sort", "排序")}: {sortBy}</span> : null}
+            {receiptOnlyFilter ? <span className="rounded-full bg-muted px-2 py-1">{tr("Receipt items", "小票食材")}</span> : null}
+          </div>
+        ) : null}
       </div>
+
+      {isMobile && isFilterPanelOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/40" role="dialog" aria-modal="true">
+          <button type="button" className="absolute inset-0 h-full w-full" aria-label="Close filters" onClick={() => setIsFilterPanelOpen(false)} />
+          <div className="relative z-10 w-full rounded-t-3xl bg-background p-4 pb-6 shadow-2xl">
+            <h3 className="text-base font-semibold">{tr("Filters", "筛选")}</h3>
+            <div className="mt-3 space-y-2">
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+                <option value="ALL">{tr("All categories", "全部分类")}</option>
+                {categories.map((category) => (
+                  <option key={category} value={category}>{category.replace("_", " ")}</option>
+                ))}
+              </select>
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3" value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
+                <option value="ALL">{tr("All locations", "全部位置")}</option>
+                {locations.map((location) => (
+                  <option key={location} value={location}>{location.replace("_", " ")}</option>
+                ))}
+              </select>
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3" value={sortBy} onChange={(event) => setSortBy(event.target.value as "name" | "expiration")}>
+                <option value="expiration">{tr("Sort by expiration", "按过期时间")}</option>
+                <option value="name">{tr("Sort by name", "按名称")}</option>
+              </select>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <Button type="button" variant="secondary" className="flex-1" onClick={() => setIsFilterPanelOpen(false)}>{tr("Apply", "应用")}</Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setCategoryFilter("ALL");
+                  setLocationFilter("ALL");
+                  setSortBy("expiration");
+                  setIsFilterPanelOpen(false);
+                }}
+              >
+                {tr("Reset", "重置")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {filtered.length === 0 ? (
         <Card>
@@ -355,8 +487,9 @@ export function InventoryView({ initialItems }: Props) {
               <Card key={item.id}>
                 <CardHeader>
                   <CardTitle className="text-lg">{readableNamesById.get(item.id)?.primaryName || item.name}</CardTitle>
+                  {readableNamesById.get(item.id)?.needsReview ? <p className="text-xs text-warning">{tr("Possible item - needs review", "可能是该食材，需要确认")}</p> : null}
                   {readableNamesById.get(item.id)?.rawName ? (
-                    <p className="text-xs text-muted-foreground">{tr("Receipt raw text:", "小票原文：")} {readableNamesById.get(item.id)?.rawName}</p>
+                    <p className="text-xs text-muted-foreground">{tr("Original receipt text:", "小票原文：")} {readableNamesById.get(item.id)?.rawName}</p>
                   ) : null}
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
@@ -409,6 +542,7 @@ export function InventoryView({ initialItems }: Props) {
                   <tr key={item.id} className="border-t">
                     <td className="p-3">
                       <p className="font-medium">{readableNamesById.get(item.id)?.primaryName || item.name}</p>
+                      {readableNamesById.get(item.id)?.needsReview ? <p className="text-xs text-warning">{tr("Possible item - needs review", "可能是该食材，需要确认")}</p> : null}
                       {readableNamesById.get(item.id)?.rawName ? (
                         <p className="text-xs text-muted-foreground">({readableNamesById.get(item.id)?.rawName})</p>
                       ) : null}

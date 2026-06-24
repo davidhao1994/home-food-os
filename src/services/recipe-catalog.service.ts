@@ -1,108 +1,70 @@
-import { ItemCategory, PrismaClient, RecipeDifficulty } from "@prisma/client";
+import { ItemCategory, PrismaClient } from "@prisma/client";
+import { BUILT_IN_RECIPE_LIBRARY } from "@/services/recipe-library";
 
-const defaultRecipes = [
-  {
-    id: "10000000-0000-0000-0000-000000000001",
-    name: "Egg Fried Rice",
-    description: "Fast fried rice using staple pantry ingredients.",
-    cuisine: "Chinese",
-    cookTime: 20,
-    difficulty: RecipeDifficulty.EASY,
-    calories: 460,
-    protein: 18,
-    carbs: 58,
-    fat: 16,
-    ingredients: [
-      { id: "20000000-0000-0000-0000-000000000001", name: "Eggs", quantity: 2, unit: "pcs", category: ItemCategory.EGGS },
-      { id: "20000000-0000-0000-0000-000000000002", name: "Rice", quantity: 2, unit: "cups", category: ItemCategory.GRAINS },
-      { id: "20000000-0000-0000-0000-000000000003", name: "Broccoli", quantity: 1, unit: "head", category: ItemCategory.VEGETABLES, isOptional: true }
-    ]
-  },
-  {
-    id: "10000000-0000-0000-0000-000000000002",
-    name: "Chicken Broccoli Stir-Fry",
-    description: "A high-protein stir-fry with simple Chinese flavors.",
-    cuisine: "Chinese",
-    cookTime: 25,
-    difficulty: RecipeDifficulty.EASY,
-    calories: 520,
-    protein: 42,
-    carbs: 22,
-    fat: 20,
-    ingredients: [
-      { id: "20000000-0000-0000-0000-000000000004", name: "Chicken breast", quantity: 400, unit: "g", category: ItemCategory.MEAT },
-      { id: "20000000-0000-0000-0000-000000000005", name: "Broccoli", quantity: 2, unit: "heads", category: ItemCategory.VEGETABLES },
-      { id: "20000000-0000-0000-0000-000000000006", name: "Rice", quantity: 1, unit: "cup", category: ItemCategory.GRAINS, isOptional: true }
-    ]
-  },
-  {
-    id: "10000000-0000-0000-0000-000000000003",
-    name: "Miso Tofu Rice Bowl",
-    description: "Simple Japanese-style tofu bowl with greens and rice.",
-    cuisine: "Japanese",
-    cookTime: 18,
-    difficulty: RecipeDifficulty.EASY,
-    calories: 430,
-    protein: 24,
-    carbs: 48,
-    fat: 14,
-    ingredients: [
-      { id: "20000000-0000-0000-0000-000000000007", name: "Tofu", quantity: 1, unit: "block", category: ItemCategory.OTHER },
-      { id: "20000000-0000-0000-0000-000000000008", name: "Rice", quantity: 1, unit: "cup", category: ItemCategory.GRAINS },
-      { id: "20000000-0000-0000-0000-000000000009", name: "Broccoli", quantity: 1, unit: "head", category: ItemCategory.VEGETABLES }
-    ]
-  },
-  {
-    id: "10000000-0000-0000-0000-000000000004",
-    name: "Korean Salmon Bowl",
-    description: "Protein-forward Korean-inspired salmon bowl.",
-    cuisine: "Korean",
-    cookTime: 22,
-    difficulty: RecipeDifficulty.MEDIUM,
-    calories: 560,
-    protein: 39,
-    carbs: 24,
-    fat: 28,
-    ingredients: [
-      { id: "20000000-0000-0000-0000-000000000010", name: "Salmon", quantity: 300, unit: "g", category: ItemCategory.SEAFOOD },
-      { id: "20000000-0000-0000-0000-000000000011", name: "Greek yogurt", quantity: 1, unit: "cup", category: ItemCategory.DAIRY },
-      { id: "20000000-0000-0000-0000-000000000012", name: "Rice", quantity: 1, unit: "cup", category: ItemCategory.GRAINS }
-    ]
-  },
-  {
-    id: "10000000-0000-0000-0000-000000000005",
-    name: "Milk Egg Scramble",
-    description: "Soft eggs boosted with milk for an American-style breakfast.",
-    cuisine: "American",
-    cookTime: 10,
-    difficulty: RecipeDifficulty.EASY,
-    calories: 280,
-    protein: 17,
-    carbs: 8,
-    fat: 18,
-    ingredients: [
-      { id: "20000000-0000-0000-0000-000000000013", name: "Eggs", quantity: 3, unit: "pcs", category: ItemCategory.EGGS },
-      { id: "20000000-0000-0000-0000-000000000014", name: "Milk", quantity: 1, unit: "cup", category: ItemCategory.DAIRY }
-    ]
-  },
-  {
-    id: "10000000-0000-0000-0000-000000000006",
-    name: "Mediterranean Chickpea Bowl",
-    description: "Mediterranean bowl with chickpeas, yogurt, and vegetables.",
-    cuisine: "Mediterranean",
-    cookTime: 18,
-    difficulty: RecipeDifficulty.EASY,
-    calories: 490,
-    protein: 21,
-    carbs: 54,
-    fat: 18,
-    ingredients: [
-      { id: "20000000-0000-0000-0000-000000000015", name: "Chickpeas", quantity: 1, unit: "can", category: ItemCategory.OTHER },
-      { id: "20000000-0000-0000-0000-000000000016", name: "Greek yogurt", quantity: 0.5, unit: "cup", category: ItemCategory.DAIRY },
-      { id: "20000000-0000-0000-0000-000000000017", name: "Spinach", quantity: 1, unit: "cup", category: ItemCategory.VEGETABLES }
-    ]
+function toRecipeUuid(index: number) {
+  return `10000000-0000-0000-0000-${String(index + 1).padStart(12, "0")}`;
+}
+
+function toIngredientUuid(index: number) {
+  return `20000000-0000-0000-0000-${String(index + 1).padStart(12, "0")}`;
+}
+
+function inferIngredientCategory(name: string): ItemCategory {
+  const value = ` ${name.toLowerCase()} `;
+
+  if (/ chicken | beef | pork | turkey /.test(value)) {
+    return ItemCategory.MEAT;
   }
-] as const;
+  if (/ salmon | shrimp | tuna | fish /.test(value)) {
+    return ItemCategory.SEAFOOD;
+  }
+  if (/ tomato | broccoli | lettuce | spinach | pepper | onion | mushroom | bok choy | carrot | cucumber | greens | cabbage /.test(value)) {
+    return ItemCategory.VEGETABLES;
+  }
+  if (/ yogurt | milk | cheese /.test(value)) {
+    return ItemCategory.DAIRY;
+  }
+  if (/ egg /.test(value)) {
+    return ItemCategory.EGGS;
+  }
+  if (/ rice | noodle | pasta | bread | tortilla /.test(value)) {
+    return ItemCategory.GRAINS;
+  }
+  if (/ chips | crackers | seeds /.test(value)) {
+    return ItemCategory.SNACKS;
+  }
+  if (/ sauce | oil | vinegar | miso | curry /.test(value)) {
+    return ItemCategory.CONDIMENTS;
+  }
+
+  return ItemCategory.OTHER;
+}
+
+const defaultRecipes = BUILT_IN_RECIPE_LIBRARY.map((recipe, recipeIndex) => {
+  const recipeId = toRecipeUuid(recipeIndex);
+  const ingredients = [...recipe.ingredients.map((name) => ({ name, isOptional: false })), ...recipe.optionalIngredients.map((name) => ({ name, isOptional: true }))];
+
+  return {
+    id: recipeId,
+    name: recipe.titleEn,
+    description: `${recipe.titleZh} · ${recipe.tags.join(", ")}`,
+    cuisine: recipe.cuisine,
+    cookTime: recipe.cookTime,
+    difficulty: recipe.difficulty,
+    calories: recipe.estimatedNutrition?.calories ?? null,
+    protein: recipe.estimatedNutrition?.protein ?? null,
+    carbs: recipe.estimatedNutrition?.carbs ?? null,
+    fat: recipe.estimatedNutrition?.fat ?? null,
+    ingredients: ingredients.map((ingredient, ingredientIndex) => ({
+      id: toIngredientUuid(recipeIndex * 20 + ingredientIndex),
+      name: ingredient.name,
+      quantity: 1,
+      unit: "item",
+      category: inferIngredientCategory(ingredient.name),
+      isOptional: ingredient.isOptional
+    }))
+  };
+});
 
 export async function ensureBaseRecipes(prisma: PrismaClient) {
   await prisma.recipe.createMany({

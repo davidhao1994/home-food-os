@@ -1,4 +1,5 @@
 import { InventoryItem, Recipe, RecipeIngredient } from "@prisma/client";
+import { findBuiltInRecipeByTitle } from "@/services/recipe-library";
 import { RecipeRecommendation } from "@/types/domain";
 import { getExpirationBucket, isExpiringSoonBucket, normalizeFoodName } from "@/utils/food";
 
@@ -96,6 +97,17 @@ function seededJitter(seed: number, key: string) {
 }
 
 function deriveRecipeMetadata(recipe: RecipeWithIngredients): RecipeMetadata {
+  const builtIn = findBuiltInRecipeByTitle(recipe.name);
+  if (builtIn) {
+    return {
+      source: "BUILT_IN",
+      mealType: builtIn.mealType,
+      difficulty: toDifficultyLabel(recipe.difficulty),
+      proteinType: builtIn.proteinType,
+      dietaryTags: builtIn.tags
+    };
+  }
+
   const normalizedName = normalizeFoodName(recipe.name);
   const override = RECIPE_METADATA_OVERRIDES[normalizedName];
   if (override) {
@@ -199,6 +211,7 @@ export function buildRecipeRecommendations(
     })
     .map((recipe) => {
       const metadata = deriveRecipeMetadata(recipe);
+      const builtIn = findBuiltInRecipeByTitle(recipe.name);
       const required = recipe.ingredients.filter((ingredient) => !ingredient.isOptional);
       const matched = required.filter((ingredient) => inventoryByName.has(normalizeFoodName(ingredient.name)));
       const missingDetailed = required.filter((ingredient) => !inventoryByName.has(normalizeFoodName(ingredient.name)));
@@ -223,43 +236,46 @@ export function buildRecipeRecommendations(
       const randomJitter = (seededJitter(randomSeed, recipe.id) - 0.5) * 0.06;
 
       const weightedScore =
-        inventoryMatch * 0.35 +
-        expiringIngredientMatch * 0.25 +
+        inventoryMatch * 0.38 +
+        expiringIngredientMatch * 0.3 +
         userPreference * 0.15 +
-        varietyScore * 0.15 +
-        mealTypeMatch * 0.1 -
+        varietyScore * 0.12 +
+        mealTypeMatch * 0.08 -
         missingPenalty * 0.2 +
         favoriteBoost -
-        recentPenalty * 0.12 +
+        recentPenalty * 0.14 +
         randomJitter;
 
       const score = Math.round(clamp(weightedScore, 0, 1.2) * 100);
 
-      const reasonParts: string[] = [];
-      if (matchedNames.length > 0) {
-        reasonParts.push(`Uses ${matchedNames.slice(0, 3).join(", ")}${matchedNames.length > 3 ? ` +${matchedNames.length - 3} more` : ""} you already have`);
-      }
-      if (expiringMatches.length > 0) {
-        reasonParts.push(`helps use ${expiringMatches.slice(0, 2).join(", ")} before it sits too long`);
-      }
-      if (missing.length === 0) {
-        reasonParts.push("needs no extra shopping");
-      } else if (missing.length === 1) {
-        reasonParts.push(`only needs ${missing[0]} to finish`);
-      } else {
-        reasonParts.push(`only needs ${missing.length} more ingredients`);
-      }
-      if (favoriteRecipeIds.has(recipe.id)) {
-        reasonParts.push("boosted from your favorites");
-      }
-      if (recentPenalty > 0.7) {
-        reasonParts.push("intentionally rotated down to keep recommendations diverse");
-      }
-      reasonParts.push(`${recipe.cookTime} min cook time`);
+      const matchedPreview = matchedNames.slice(0, 3).join(", ");
+      const expiringPreview = expiringMatches.slice(0, 2).join("、");
+      const missingPreview = missing.slice(0, 3).join(", ");
+
+      const reason = [
+        `You have ${matched.length}/${Math.max(required.length, 1)} ingredients`,
+        matched.length > 0 ? `Uses: ${matchedPreview}${matchedNames.length > 3 ? ` +${matchedNames.length - 3}` : ""}` : null,
+        missing.length > 0 ? `Missing: ${missingPreview}${missing.length > 3 ? ` +${missing.length - 3}` : ""}` : "Missing: none",
+        `About ${recipe.cookTime} min ${metadata.dietaryTags.includes("quick") ? "- Quick meal" : ""}`
+      ]
+        .filter(Boolean)
+        .join(". ");
+
+      const reasonZh = [
+        `你已有 ${matched.length}/${Math.max(required.length, 1)} 个食材`,
+        matched.length > 0 ? `可用掉：${matchedNames.slice(0, 3).join("、")}${matchedNames.length > 3 ? ` 等${matchedNames.length}项` : ""}` : null,
+        missing.length > 0 ? `还缺：${missing.slice(0, 3).join("、")}${missing.length > 3 ? ` 等${missing.length}项` : ""}` : "不缺食材",
+        expiringMatches.length > 0 ? `可优先消耗临期食材：${expiringPreview}` : null,
+        `约 ${recipe.cookTime} 分钟`
+      ]
+        .filter(Boolean)
+        .join(" · ");
 
       return {
         recipeId: recipe.id,
         name: recipe.name,
+        titleEn: builtIn?.titleEn ?? recipe.name,
+        titleZh: builtIn?.titleZh,
         matchScore: score,
         ingredientMatchPercent: score,
         source: metadata.source,
@@ -275,7 +291,8 @@ export function buildRecipeRecommendations(
           category: ingredient.category ?? null
         })),
         matchedIngredients: matchedNames,
-        reason: `${reasonParts.join(". ")}.`,
+        reason,
+        reasonZh,
         scoreBreakdown: {
           inventoryMatch: Math.round(inventoryMatch * 100) / 100,
           expiringIngredientMatch: Math.round(expiringIngredientMatch * 100) / 100,

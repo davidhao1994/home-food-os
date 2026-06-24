@@ -30,9 +30,12 @@ type OcrItem = {
   normalizedName?: string;
   displayName?: string;
   displayNameZh?: string;
+  possibleNameHint?: string;
+  possibleNameHintZh?: string;
   aliases?: string[];
   needsReview?: boolean;
   normalizationConfidence?: number;
+  isFood?: boolean;
   extractedQuantity: number | null;
   extractedUnit: string | null;
   extractedPrice: number | null;
@@ -99,6 +102,22 @@ function formatSuggestedDate(value: string | null) {
 
 function tr(language: "en" | "zh", en: string, zh: string) {
   return language === "zh" ? zh : en;
+}
+
+function getPrimaryName(language: "en" | "zh", line: OcrItem) {
+  if (line.needsReview) {
+    if (language === "zh") {
+      return line.possibleNameHintZh || line.displayNameZh || line.possibleNameHint || line.displayName || line.extractedName;
+    }
+
+    return line.possibleNameHint || line.displayName || line.extractedName;
+  }
+
+  if (language === "zh") {
+    return line.displayNameZh || line.displayName || line.extractedName;
+  }
+
+  return line.displayName || line.extractedName;
 }
 
 export function ReceiptUploader() {
@@ -207,6 +226,7 @@ export function ReceiptUploader() {
         extractedName: learned?.displayName ?? line.extractedName,
         displayName: learned?.displayName ?? line.displayName,
         displayNameZh: learned?.displayNameZh ?? line.displayNameZh,
+        isFood: line.isFood ?? true,
         suggestedCategory: learned?.category ?? line.suggestedCategory,
         mergeStrategy: line.mergeStrategy ?? line.defaultAction,
         existingInventoryItemId: line.existingInventoryItemId ?? line.defaultMergeTargetId ?? null
@@ -381,7 +401,12 @@ export function ReceiptUploader() {
           reviewedLines: results.map((line) => ({
             id: line.id,
             selected: selectedIds.includes(line.id),
+            isFood: line.isFood ?? true,
             extractedName: line.extractedName,
+            normalizedName: line.normalizedName ?? null,
+            displayName: line.displayName ?? null,
+            displayNameZh: line.displayNameZh ?? null,
+            needsReview: line.needsReview ?? false,
             extractedQuantity: line.extractedQuantity,
             extractedUnit: line.extractedUnit,
             extractedPrice: line.extractedPrice,
@@ -433,6 +458,17 @@ export function ReceiptUploader() {
 
   const updateLine = (id: string, updater: (line: OcrItem) => OcrItem) => {
     setResults((current) => current.map((line) => (line.id === id ? updater(line) : line)));
+  };
+
+  const rejectLine = (id: string, markNotFood = false) => {
+    updateLine(id, (current) => ({
+      ...current,
+      lineStatus: "REJECTED",
+      isFood: markNotFood ? false : current.isFood,
+      mergeStrategy: "CREATE_NEW",
+      existingInventoryItemId: null
+    }));
+    setSelectedIds((current) => current.filter((value) => value !== id));
   };
 
   const saveCorrection = (line: OcrItem) => {
@@ -614,7 +650,8 @@ export function ReceiptUploader() {
 
                     <div className="mt-3 grid grid-cols-1 gap-2">
                       <div className="rounded-xl border bg-muted/20 px-3 py-2">
-                        <p className="text-sm font-semibold text-foreground">{language === "zh" ? line.displayNameZh || line.displayName || line.extractedName : line.displayName || line.extractedName}</p>
+                        <p className="text-sm font-semibold text-foreground">{getPrimaryName(language, line)}</p>
+                        {line.needsReview ? <p className="mt-1 text-xs text-warning">{tr(language, "Possible item - needs review", "可能是该食材，需要确认")}</p> : null}
                         <p className="mt-1 text-xs text-muted-foreground">{tr(language, "Original receipt text:", "小票原文：")} {line.rawName ?? line.rawLine ?? "N/A"}</p>
                       </div>
                       <label className="text-xs text-muted-foreground">{tr(language, "Item name", "食材名称")}</label>
@@ -679,7 +716,13 @@ export function ReceiptUploader() {
                       <div className="flex flex-wrap gap-2">
                         <p className="text-xs font-medium">{tr(language, "Status:", "状态：")} {line.lineStatus}</p>
                         <Button type="button" size="sm" variant="outline" onClick={() => saveCorrection(line)}>
-                          {tr(language, "This is actually...", "实际上是...")}
+                          {tr(language, "This is correct", "这项正确")}
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => rejectLine(line.id)}>
+                          {tr(language, "Ignore item", "忽略此项")}
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => rejectLine(line.id, true)}>
+                          {tr(language, "Not food", "非食材")}
                         </Button>
                       </div>
                     </div>
@@ -707,14 +750,26 @@ export function ReceiptUploader() {
                           <input type="checkbox" checked={selectedIds.includes(line.id)} onChange={() => toggleSelected(line.id)} />
                         </td>
                         <td className="px-3 py-2">
-                          <p className="mb-1 text-xs font-medium text-foreground">{language === "zh" ? line.displayNameZh || line.displayName || line.extractedName : line.displayName || line.extractedName}</p>
+                          <p className="mb-1 text-xs font-medium text-foreground">{getPrimaryName(language, line)}</p>
+                          {line.needsReview ? <p className="mb-1 text-xs text-warning">{tr(language, "Possible item - needs review", "可能是该食材，需要确认")}</p> : null}
                           <input
                             value={line.extractedName}
                             onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedName: event.target.value }))}
                             className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                             disabled={!canReview}
                           />
-                          <p className="mt-1 text-xs text-muted-foreground">{tr(language, "Original receipt text:", "小票原文：")} {line.rawLine ?? "N/A"}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{tr(language, "Original receipt text:", "小票原文：")} {line.rawName ?? line.rawLine ?? "N/A"}</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Button type="button" size="sm" variant="outline" onClick={() => saveCorrection(line)}>
+                              {tr(language, "This is correct", "这项正确")}
+                            </Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => rejectLine(line.id)}>
+                              {tr(language, "Ignore item", "忽略此项")}
+                            </Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => rejectLine(line.id, true)}>
+                              {tr(language, "Not food", "非食材")}
+                            </Button>
+                          </div>
                         </td>
                         <td className="px-3 py-2">
                           <input type="number" min="0" step="0.01" value={line.extractedQuantity ?? ""} onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedQuantity: event.target.value ? Number(event.target.value) : null }))} className="h-9 w-24 rounded-md border border-input bg-background px-3 text-sm" disabled={!canReview} />

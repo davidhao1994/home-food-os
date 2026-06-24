@@ -108,6 +108,20 @@ export function DashboardOverview({
                 <p className="mt-2 text-sm text-muted-foreground md:text-base">
                   {tr("Start with high-priority actions: prevent spoilage, close shopping gaps, and pick tonight's best recipe.", "先做最重要的事：处理临期、补齐购物、决定今晚吃什么。")}
                 </p>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  {[
+                    tr("What to cook tonight", "今晚吃什么"),
+                    tr("Use expiring ingredients", "用掉快过期食材"),
+                    tr("Quick meals", "快手菜"),
+                    tr("Home-style", "家常菜"),
+                    tr("High protein", "高蛋白"),
+                    tr("Lighter", "清淡一点")
+                  ].map((label) => (
+                    <span key={label} className="rounded-full bg-background/80 px-2.5 py-1 text-muted-foreground">
+                      {label}
+                    </span>
+                  ))}
+                </div>
               </div>
               <div className="rounded-2xl border border-primary/20 bg-background/70 px-4 py-3 text-right shadow-sm">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{tr("Best tonight", "今晚推荐")}</p>

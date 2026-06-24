@@ -380,8 +380,8 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border bg-card p-4">
-        <h3 className="text-sm font-semibold">{tr("Recipe Library Sources", "菜谱来源")}</h3>
-        <p className="mt-1 text-xs text-muted-foreground">{tr("Manage where recipes come from. Local library entries persist in your browser when backend recipe CRUD is unavailable.", "管理菜谱来源。后端不可用时，本地菜谱会保存在浏览器中。")}</p>
+        <h3 className="text-sm font-semibold">{tr("Built-in Recipe Ideas", "内置菜谱推荐")}</h3>
+        <p className="mt-1 text-xs text-muted-foreground">{tr("Recommendations default to built-in everyday meals and your inventory. Manual creation and import are optional under Manage Recipes.", "推荐默认使用内置家常菜与库存匹配。手动创建和导入在“管理菜谱”中作为可选功能。")}</p>
         <div className="mt-3 grid grid-cols-2 gap-2 text-xs md:grid-cols-5">
           <div className="rounded-xl border bg-muted/20 p-2">{tr("Built-in", "内置菜谱")}: <span className="font-semibold">{sourceCounts.builtIn}</span></div>
           <div className="rounded-xl border bg-muted/20 p-2">{tr("User", "自建")}: <span className="font-semibold">{sourceCounts.user}</span></div>
@@ -390,8 +390,10 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
           <div className="rounded-xl border bg-muted/20 p-2">{tr("Hidden", "已隐藏")}: <span className="font-semibold">{sourceCounts.hidden}</span></div>
         </div>
 
-        <div className="mt-4 grid gap-2 md:grid-cols-3">
-          <div className="space-y-2 rounded-xl border p-3">
+        <details className="mt-4 rounded-xl border p-3">
+          <summary className="cursor-pointer text-sm font-medium">{tr("Manage Recipes (Optional)", "管理菜谱（可选）")}</summary>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <div className="space-y-2 rounded-xl border p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr("Create Manually", "手动创建")}</p>
             <input
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
@@ -417,9 +419,9 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
             >
               {tr("Save Recipe", "保存菜谱")}
             </button>
-          </div>
+            </div>
 
-          <div className="space-y-2 rounded-xl border p-3">
+            <div className="space-y-2 rounded-xl border p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr("Import From URL", "从链接导入")}</p>
             <input
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
@@ -434,9 +436,9 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
             >
               {tr("Import URL", "导入链接")}
             </button>
-          </div>
+            </div>
 
-          <div className="space-y-2 rounded-xl border p-3">
+            <div className="space-y-2 rounded-xl border p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr("Paste Text / Screenshot", "粘贴文本 / 截图")}</p>
             <textarea
               className="min-h-[72px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -462,8 +464,9 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
                 />
               </label>
             </div>
+            </div>
           </div>
-        </div>
+        </details>
       </div>
 
       <div className="rounded-2xl border bg-card p-3">

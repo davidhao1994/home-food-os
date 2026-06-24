@@ -69,10 +69,13 @@ export function buildReceiptReviewLines(lines: OcrLineInput[], inventoryItems: I
 
     return {
       ...line,
+      extractedName: normalized.displayName,
       rawName: normalized.rawName,
       normalizedName: normalized.normalizedName,
       displayName: normalized.displayName,
       displayNameZh: normalized.displayNameZh,
+      possibleNameHint: normalized.possibleDisplayName,
+      possibleNameHintZh: normalized.possibleDisplayNameZh,
       aliases: normalized.aliases,
       needsReview: normalized.needsReview || (line.confidence != null && Number(line.confidence) < 0.72),
       normalizationConfidence: normalized.confidence,

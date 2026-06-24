@@ -43,6 +43,7 @@ const mobileLinks: NavLink[] = [
   { href: "/inventory", icon: Apple, labelKey: "navInventory" },
   { href: "/receipts", icon: Receipt, labelKey: "navReceipts" },
   { href: "/shopping", icon: ShoppingBasket, labelKey: "navShopping" },
+  { href: "/nutrition", icon: BarChart3, labelKey: "navNutrition" },
   { href: "/recipes", icon: ChefHat, labelKey: "navRecipes" }
 ];
 
@@ -62,8 +63,11 @@ export function NavLinks({ showProfile, mode = "desktop" }: NavLinksProps) {
 
   if (mode === "mobile") {
     return (
-      <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-[80] border-t bg-background/95 px-3 pb-[max(env(safe-area-inset-bottom),0.9rem)] pt-2 backdrop-blur md:hidden">
-        <div className="pointer-events-auto mx-auto flex max-w-md items-end justify-between gap-1">
+      <nav
+        className="fixed inset-x-0 bottom-0 z-[140] border-t border-border/80 bg-background/95 px-3 pb-[max(env(safe-area-inset-bottom),0.9rem)] pt-2 backdrop-blur md:hidden"
+        style={{ WebkitTapHighlightColor: "transparent" }}
+      >
+        <div className="mx-auto flex max-w-md items-end justify-between gap-1">
           {mobileLinks.map((link) => {
             const Icon = link.icon;
             const active = isLinkActive(pathname, link.href);

@@ -10,6 +10,8 @@ export type NormalizedReceiptItem = {
   confidence: number;
   aliases: string[];
   needsReview: boolean;
+  possibleDisplayName?: string;
+  possibleDisplayNameZh?: string;
 };
 
 export type GroceryLearningStore = Record<
@@ -31,23 +33,84 @@ type CanonicalEntry = {
 };
 
 const TOKEN_ALIASES: Record<string, string> = {
-  chkn: "chicken",
-  chk: "chicken",
+  org: "organic",
+  frzn: "frozen",
   bnls: "boneless",
   sknls: "skinless",
+  wt: "weight",
+  lb: "pound",
+  lbs: "pound",
+  ct: "count",
+  pk: "pack",
+  ea: "each",
+  jmbo: "jumbo",
+  chk: "chicken",
+  chkn: "chicken",
   brst: "breast",
-  broc: "broccoli",
-  floret: "florets",
-  florets: "florets",
-  grk: "greek",
+  thgh: "thigh",
+  grnd: "ground",
+  bf: "beef",
+  prk: "pork",
+  slmn: "salmon",
+  shrmp: "shrimp",
+  egg: "egg",
+  mlk: "milk",
   ygrt: "yogurt",
   ygt: "yogurt",
+  grk: "greek",
   tom: "tomato",
-  roma: "roma",
-  org: "organic"
+  broc: "broccoli",
+  let: "lettuce",
+  spin: "spinach",
+  mushrm: "mushroom",
+  pot: "potato",
+  on: "onion",
+  scall: "scallion",
+  cilan: "cilantro",
+  avo: "avocado",
+  sds: "seeds",
+  sf: "sunflower",
+  rnch: "ranch",
+  chps: "chips",
+  crkr: "crackers",
+  brd: "bread",
+  bagl: "bagel",
+  cereal: "cereal",
+  psta: "pasta",
+  rice: "rice",
+  nood: "noodles",
+  bv: "store brand"
 };
 
+const NOISE_TOKENS = new Set([
+  "subtotal",
+  "total",
+  "tax",
+  "balance",
+  "visa",
+  "mastercard",
+  "cashback",
+  "coupon",
+  "reward",
+  "member",
+  "phone",
+  "transaction",
+  "id",
+  "store",
+  "address",
+  "card",
+  "debit",
+  "credit"
+]);
+
 const CANONICAL_ENTRIES: CanonicalEntry[] = [
+  {
+    phrase: "ranch sunflower seeds",
+    aliases: ["jmbo rnch sf sds", "jumbo ranch sunflower seeds", "sunflower seeds ranch"],
+    displayName: "Ranch Sunflower Seeds",
+    displayNameZh: "牧场味葵花籽",
+    category: ItemCategory.SNACKS
+  },
   {
     phrase: "boneless skinless chicken breast",
     aliases: ["bnls sknls chkn brst", "boneless chicken breast", "chicken breast"],
@@ -56,11 +119,18 @@ const CANONICAL_ENTRIES: CanonicalEntry[] = [
     category: ItemCategory.MEAT
   },
   {
-    phrase: "organic broccoli florets",
-    aliases: ["org broc floret", "broc florets", "broccoli"],
-    displayName: "Broccoli",
-    displayNameZh: "西兰花",
-    category: ItemCategory.VEGETABLES
+    phrase: "chicken thigh",
+    aliases: ["chkn thgh", "chicken thighs"],
+    displayName: "Chicken Thigh",
+    displayNameZh: "鸡腿肉",
+    category: ItemCategory.MEAT
+  },
+  {
+    phrase: "ground beef",
+    aliases: ["grnd bf", "ground bf"],
+    displayName: "Ground Beef",
+    displayNameZh: "牛绞肉",
+    category: ItemCategory.MEAT
   },
   {
     phrase: "greek yogurt",
@@ -77,6 +147,83 @@ const CANONICAL_ENTRIES: CanonicalEntry[] = [
     category: ItemCategory.VEGETABLES
   },
   {
+    phrase: "broccoli",
+    aliases: ["broc", "broccoli florets"],
+    displayName: "Broccoli",
+    displayNameZh: "西兰花",
+    category: ItemCategory.VEGETABLES
+  },
+  {
+    phrase: "lettuce",
+    aliases: ["let", "romaine lettuce"],
+    displayName: "Lettuce",
+    displayNameZh: "生菜",
+    category: ItemCategory.VEGETABLES
+  },
+  {
+    phrase: "spinach",
+    aliases: ["spin", "baby spinach"],
+    displayName: "Spinach",
+    displayNameZh: "菠菜",
+    category: ItemCategory.VEGETABLES
+  },
+  {
+    phrase: "mushroom",
+    aliases: ["mushrm", "mushrm"],
+    displayName: "Mushroom",
+    displayNameZh: "蘑菇",
+    category: ItemCategory.VEGETABLES
+  },
+  {
+    phrase: "potato",
+    aliases: ["pot", "russet potato"],
+    displayName: "Potato",
+    displayNameZh: "土豆",
+    category: ItemCategory.VEGETABLES
+  },
+  {
+    phrase: "onion",
+    aliases: ["on", "yellow onion"],
+    displayName: "Onion",
+    displayNameZh: "洋葱",
+    category: ItemCategory.VEGETABLES
+  },
+  {
+    phrase: "scallion",
+    aliases: ["scall", "green onion"],
+    displayName: "Scallion",
+    displayNameZh: "葱",
+    category: ItemCategory.VEGETABLES
+  },
+  {
+    phrase: "cilantro",
+    aliases: ["cilan", "coriander leaf"],
+    displayName: "Cilantro",
+    displayNameZh: "香菜",
+    category: ItemCategory.VEGETABLES
+  },
+  {
+    phrase: "avocado",
+    aliases: ["avo"],
+    displayName: "Avocado",
+    displayNameZh: "牛油果",
+    category: ItemCategory.FRUITS
+  },
+  {
+    phrase: "pasta",
+    aliases: ["psta"],
+    displayName: "Pasta",
+    displayNameZh: "意面",
+    category: ItemCategory.GRAINS
+  },
+  {
+    phrase: "noodles",
+    aliases: ["nood"],
+    displayName: "Noodles",
+    displayNameZh: "面条",
+    category: ItemCategory.GRAINS
+  },
+  {
     phrase: "egg",
     aliases: ["eggs", "egg"],
     displayName: "Eggs",
@@ -85,17 +232,45 @@ const CANONICAL_ENTRIES: CanonicalEntry[] = [
   },
   {
     phrase: "milk",
-    aliases: ["whole milk", "milk"],
+    aliases: ["mlk", "whole milk", "milk"],
     displayName: "Milk",
     displayNameZh: "牛奶",
     category: ItemCategory.DAIRY
   },
   {
     phrase: "salmon",
-    aliases: ["salmon", "fish fillet"],
+    aliases: ["slmn", "salmon"],
     displayName: "Salmon",
     displayNameZh: "三文鱼",
     category: ItemCategory.SEAFOOD
+  },
+  {
+    phrase: "shrimp",
+    aliases: ["shrmp", "shrimp"],
+    displayName: "Shrimp",
+    displayNameZh: "虾",
+    category: ItemCategory.SEAFOOD
+  },
+  {
+    phrase: "bread",
+    aliases: ["brd"],
+    displayName: "Bread",
+    displayNameZh: "面包",
+    category: ItemCategory.GRAINS
+  },
+  {
+    phrase: "chips",
+    aliases: ["chps", "potato chips"],
+    displayName: "Chips",
+    displayNameZh: "薯片",
+    category: ItemCategory.SNACKS
+  },
+  {
+    phrase: "crackers",
+    aliases: ["crkr", "cracker"],
+    displayName: "Crackers",
+    displayNameZh: "饼干",
+    category: ItemCategory.SNACKS
   }
 ];
 
@@ -154,7 +329,7 @@ function fuzzySimilarity(left: string, right: string) {
 
 function guessCategory(normalizedName: string) {
   const value = ` ${normalizedName} `;
-  if (value.includes(" chicken") || value.includes(" beef") || value.includes(" pork")) {
+  if (value.includes(" chicken") || value.includes(" beef") || value.includes(" pork") || value.includes(" turkey")) {
     return ItemCategory.MEAT;
   }
   if (value.includes(" salmon") || value.includes(" shrimp") || value.includes(" fish")) {
@@ -169,16 +344,45 @@ function guessCategory(normalizedName: string) {
   if (value.includes(" broccoli") || value.includes(" tomato") || value.includes(" spinach") || value.includes(" lettuce")) {
     return ItemCategory.VEGETABLES;
   }
-  if (value.includes(" rice") || value.includes(" oat") || value.includes(" flour")) {
+  if (value.includes(" rice") || value.includes(" oat") || value.includes(" flour") || value.includes(" noodle") || value.includes(" pasta")) {
     return ItemCategory.GRAINS;
+  }
+  if (value.includes(" seed") || value.includes(" chips") || value.includes(" crackers")) {
+    return ItemCategory.SNACKS;
   }
 
   return ItemCategory.OTHER;
 }
 
+function cleanRawText(rawName: string) {
+  return rawName
+    .replace(/[\$]?\d+[.,]\d{2}\b/g, " ")
+    .replace(/\b\d{1,4}[xX]\b/g, " ")
+    .replace(/\b\d{1,4}\b/g, " ")
+    .replace(/[^A-Za-z\s]/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function tokenizeAndExpand(raw: string) {
+  return normalizeFoodName(raw)
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((token) => !NOISE_TOKENS.has(token))
+    .map((token) => {
+      if (TOKEN_ALIASES[token]) {
+        return TOKEN_ALIASES[token];
+      }
+
+      const nearestAlias = Object.keys(TOKEN_ALIASES).find((alias) => fuzzySimilarity(alias, token) >= 0.84);
+      return nearestAlias ? TOKEN_ALIASES[nearestAlias] : token;
+    });
+}
+
 export function normalizeReceiptItemName(rawName: string, learningStore: GroceryLearningStore = {}): NormalizedReceiptItem {
   const raw = rawName.trim();
-  const normalizedRaw = normalizeFoodName(raw);
+  const cleaned = cleanRawText(raw);
+  const normalizedRaw = normalizeFoodName(cleaned || raw);
 
   const learned = learningStore[normalizedRaw];
   if (learned) {
@@ -199,18 +403,7 @@ export function normalizeReceiptItemName(rawName: string, learningStore: Grocery
     };
   }
 
-  const expandedTokens = normalizedRaw
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((token) => {
-      if (TOKEN_ALIASES[token]) {
-        return TOKEN_ALIASES[token];
-      }
-
-      const nearestAlias = Object.keys(TOKEN_ALIASES).find((alias) => fuzzySimilarity(alias, token) >= 0.84);
-      return nearestAlias ? TOKEN_ALIASES[nearestAlias] : token;
-    });
-
+  const expandedTokens = tokenizeAndExpand(cleaned || raw);
   const normalizedName = normalizeFoodName(expandedTokens.join(" "));
 
   let bestEntry: CanonicalEntry | null = null;
@@ -227,11 +420,15 @@ export function normalizeReceiptItemName(rawName: string, learningStore: Grocery
     }
   }
 
-  const displayName = bestEntry && bestScore > 0.75 ? bestEntry.displayName : titleCase(normalizedName || raw);
-  const displayNameZh = bestEntry && bestScore > 0.75 ? bestEntry.displayNameZh : displayName;
-  const category = bestEntry && bestScore > 0.75 ? bestEntry.category : guessCategory(normalizedName);
+  const fallbackDisplay = titleCase(normalizedName || normalizeFoodName(raw) || "Unknown Item");
+  const displayName = bestEntry && bestScore >= 0.7 ? bestEntry.displayName : fallbackDisplay;
+  const displayNameZh = bestEntry && bestScore >= 0.7 ? bestEntry.displayNameZh : fallbackDisplay;
+  const category = bestEntry && bestScore >= 0.7 ? bestEntry.category : guessCategory(normalizedName);
 
-  const confidence = Math.max(0.45, Math.min(0.99, 0.55 + bestScore * 0.35 + (normalizedName === normalizedRaw ? 0 : 0.08)));
+  const tokenQualityBoost = expandedTokens.some((token) => TOKEN_ALIASES[token] || Object.values(TOKEN_ALIASES).includes(token)) ? 0.06 : 0;
+  const confidence = Math.max(0.42, Math.min(0.99, 0.48 + bestScore * 0.42 + tokenQualityBoost));
+  const roundedConfidence = Math.round(confidence * 100) / 100;
+  const needsReview = roundedConfidence < 0.74;
 
   return {
     rawName: raw,
@@ -239,9 +436,11 @@ export function normalizeReceiptItemName(rawName: string, learningStore: Grocery
     displayName,
     displayNameZh,
     category,
-    confidence: Math.round(confidence * 100) / 100,
-    aliases: bestEntry ? [raw, ...bestEntry.aliases].slice(0, 6) : [raw],
-    needsReview: confidence < 0.72
+    confidence: roundedConfidence,
+    aliases: bestEntry ? [raw, ...bestEntry.aliases].slice(0, 8) : [raw],
+    needsReview,
+    possibleDisplayName: needsReview ? displayName : undefined,
+    possibleDisplayNameZh: needsReview ? displayNameZh : undefined
   };
 }
 

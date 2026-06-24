@@ -13,7 +13,12 @@ const confirmReceiptSchema = z.object({
       z.object({
         id: z.string().uuid(),
         selected: z.boolean(),
+        isFood: z.boolean().optional().default(true),
         extractedName: z.string().trim().min(1).max(160),
+        normalizedName: z.string().trim().min(1).max(160).nullable().optional(),
+        displayName: z.string().trim().min(1).max(160).nullable().optional(),
+        displayNameZh: z.string().trim().min(1).max(160).nullable().optional(),
+        needsReview: z.boolean().optional(),
         extractedQuantity: z.number().positive().nullable(),
         extractedUnit: z.string().trim().max(40).nullable(),
         extractedPrice: z.number().nonnegative().nullable(),
@@ -42,11 +47,18 @@ function buildReceiptImportNotes(input: {
   receiptId: string;
   rawLine?: string | null;
   extractedName: string;
+  normalizedName?: string | null;
+  displayName?: string | null;
+  displayNameZh?: string | null;
+  needsReview?: boolean;
 }) {
   const segments = [
     `${input.existingNotes ? `${input.existingNotes}\n` : ""}Added from ${input.retailer ?? "receipt"} receipt ${input.receiptId}`,
     input.rawLine ? `OCR_RAW: ${input.rawLine}` : null,
-    `OCR_NORMALIZED: ${input.extractedName}`
+    `OCR_NORMALIZED: ${input.normalizedName ?? input.extractedName}`,
+    input.displayName ? `OCR_DISPLAY_EN: ${input.displayName}` : null,
+    input.displayNameZh ? `OCR_DISPLAY_ZH: ${input.displayNameZh}` : null,
+    input.needsReview ? "OCR_NEEDS_REVIEW: true" : null
   ].filter((value): value is string => Boolean(value));
 
   return segments.join("\n");
@@ -83,7 +95,7 @@ export async function POST(request: Request) {
     return jsonResponse({ addedCount: 0, createdCount: 0, mergedCount: 0, alreadyProcessed: true });
   }
 
-  const selected = parsed.data.reviewedLines.filter((line) => line.selected);
+  const selected = parsed.data.reviewedLines.filter((line) => line.selected && line.isFood !== false);
   if (selected.length === 0) {
     return jsonResponse({ error: "Select at least one line to add into inventory" }, { status: 400 });
   }
@@ -187,7 +199,11 @@ export async function POST(request: Request) {
               retailer: receipt.retailer,
               receiptId: receipt.id,
               rawLine: line.rawLine,
-              extractedName: name
+              extractedName: name,
+              normalizedName: reviewed.normalizedName,
+              displayName: reviewed.displayName,
+              displayNameZh: reviewed.displayNameZh,
+              needsReview: reviewed.needsReview
             })
           }
         });
@@ -212,7 +228,11 @@ export async function POST(request: Request) {
           retailer: receipt.retailer,
           receiptId: receipt.id,
           rawLine: line.rawLine,
-          extractedName: name
+          extractedName: name,
+          normalizedName: reviewed.normalizedName,
+          displayName: reviewed.displayName,
+          displayNameZh: reviewed.displayNameZh,
+          needsReview: reviewed.needsReview
         })
       });
       createdCount += 1;

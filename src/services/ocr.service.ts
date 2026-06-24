@@ -1,4 +1,5 @@
 import { ItemCategory, OcrLineStatus, ReceiptStatus, StorageLocation } from "@prisma/client";
+import { normalizeReceiptItemName } from "@/services/grocery-normalization";
 
 export type OcrExtractedLine = {
   rawLine?: string;
@@ -34,14 +35,26 @@ const RECEIPT_LINE_BLACKLIST = [
   /subtotal/i,
   /total/i,
   /tax/i,
+  /transaction\s*(id|#)?/i,
+  /auth\s*code/i,
+  /approval/i,
   /visa|mastercard|debit|credit/i,
+  /amex|discover/i,
   /change due/i,
+  /cash\s*back/i,
+  /coupon|discount|reward/i,
   /member/i,
+  /phone/i,
+  /address/i,
+  /date\s*[:\-]/i,
+  /time\s*[:\-]/i,
   /thank/i,
   /cashier/i,
   /store/i,
   /items sold/i,
-  /balance/i
+  /balance/i,
+  /^\*+$/,
+  /^-+$/
 ];
 
 const UNIT_HINTS = ["lb", "lbs", "kg", "g", "oz", "ct", "pk", "ea", "pcs", "pc", "gal", "l"];
@@ -705,23 +718,19 @@ export async function runReceiptOcrFromBase64(imageBase64: string): Promise<Rece
 }
 
 export function inferReceiptItemDetails(name: string) {
-  const normalized = name.toLowerCase();
+  const normalized = normalizeReceiptItemName(name);
 
-  if (normalized.includes("egg")) {
-    return { category: ItemCategory.EGGS, storageLocation: StorageLocation.REFRIGERATOR };
+  if (normalized.category === ItemCategory.EGGS || normalized.category === ItemCategory.DAIRY || normalized.category === ItemCategory.VEGETABLES || normalized.category === ItemCategory.FRUITS) {
+    return { category: normalized.category, storageLocation: StorageLocation.REFRIGERATOR };
   }
 
-  if (normalized.includes("milk") || normalized.includes("yogurt")) {
-    return { category: ItemCategory.DAIRY, storageLocation: StorageLocation.REFRIGERATOR };
+  if (normalized.category === ItemCategory.MEAT || normalized.category === ItemCategory.SEAFOOD || normalized.category === ItemCategory.FROZEN_FOODS) {
+    return { category: normalized.category, storageLocation: StorageLocation.FREEZER };
   }
 
-  if (normalized.includes("spinach") || normalized.includes("broccoli") || normalized.includes("vegetable")) {
-    return { category: ItemCategory.VEGETABLES, storageLocation: StorageLocation.REFRIGERATOR };
+  if (normalized.category === ItemCategory.SNACKS || normalized.category === ItemCategory.CONDIMENTS || normalized.category === ItemCategory.GRAINS || normalized.category === ItemCategory.BEVERAGES) {
+    return { category: normalized.category, storageLocation: StorageLocation.PANTRY };
   }
 
-  if (normalized.includes("salmon")) {
-    return { category: ItemCategory.SEAFOOD, storageLocation: StorageLocation.FREEZER };
-  }
-
-  return { category: ItemCategory.OTHER, storageLocation: StorageLocation.PANTRY };
+  return { category: normalized.category, storageLocation: StorageLocation.PANTRY };
 }

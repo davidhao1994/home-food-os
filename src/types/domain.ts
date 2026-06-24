@@ -31,6 +31,8 @@ export type RecipeMissingIngredient = {
 export type RecipeRecommendation = {
   recipeId: string;
   name: string;
+  titleEn?: string;
+  titleZh?: string;
   matchScore: number;
   ingredientMatchPercent: number;
   source?: "BUILT_IN" | "USER" | "IMPORTED" | "FAMILY_FAVORITES";
@@ -42,6 +44,7 @@ export type RecipeRecommendation = {
   missingIngredientsDetailed: RecipeMissingIngredient[];
   matchedIngredients: string[];
   reason: string;
+  reasonZh?: string;
   scoreBreakdown?: {
     inventoryMatch: number;
     expiringIngredientMatch: number;

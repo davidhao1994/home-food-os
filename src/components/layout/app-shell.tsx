@@ -25,7 +25,7 @@ export function AppShell({ children }: AppShellProps) {
           <NavLinks mode="desktop" showProfile={showProfile} />
         </aside>
 
-        <div className="relative z-0 flex min-h-screen min-w-0 flex-1 flex-col">
+        <div className="relative z-0 flex min-h-screen min-w-0 flex-1 flex-col isolate">
           <header className="sticky top-0 z-30 border-b bg-background/90 px-4 pb-3 pt-[max(env(safe-area-inset-top),1rem)] backdrop-blur md:hidden">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -39,7 +39,7 @@ export function AppShell({ children }: AppShellProps) {
             </div>
           </header>
 
-          <main className="min-w-0 flex-1 p-4 pb-[calc(env(safe-area-inset-bottom)+8.75rem)] md:p-8 md:pb-8">{children}</main>
+          <main className="relative z-0 min-w-0 flex-1 p-4 pb-[calc(env(safe-area-inset-bottom)+9.5rem)] md:p-8 md:pb-8">{children}</main>
           <NavLinks mode="mobile" showProfile={showProfile} />
         </div>
       </div>

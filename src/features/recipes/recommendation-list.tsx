@@ -40,6 +40,14 @@ function formatProteinType(value: RecipeRecommendation["proteinType"]) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function displayRecipeTitle(recipe: RecipeRecommendation, language: "en" | "zh") {
+  if (language === "zh") {
+    return recipe.titleZh || recipe.titleEn || recipe.name;
+  }
+
+  return recipe.titleEn || recipe.name;
+}
+
 export function RecommendationList({ recommendations, preferences, language, onToggleFavorite, onHide, onNotInterested, onRefresh, onMarkShown, isLoading = false }: Props) {
   const [pendingRecipeId, setPendingRecipeId] = useState<string | null>(null);
   const [status, setStatus] = useState<{ tone: "success" | "error"; message: string } | null>(null);
@@ -98,7 +106,7 @@ export function RecommendationList({ recommendations, preferences, language, onT
   const tr = (en: string, zh: string) => (language === "zh" ? zh : en);
 
   if (visibleRecommendations.length === 0 && !isLoading) {
-    return <p className="text-sm text-muted-foreground">{tr("No recipes available yet. Add or import recipes to get recommendations.", "还没有可推荐的菜谱。先添加或导入菜谱吧。")}</p>;
+    return <p className="text-sm text-muted-foreground">{tr("No recipe ideas yet. Scan one receipt and you will start seeing what to cook tonight.", "暂时没有推荐。先扫一张小票，就能看到今晚吃什么。")}</p>;
   }
 
   return (
@@ -139,7 +147,8 @@ export function RecommendationList({ recommendations, preferences, language, onT
         <div key={recipe.recipeId} className="rounded-2xl border bg-card p-4 shadow-sm">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className="font-semibold">{recipe.name}</h3>
+              <h3 className="font-semibold">{displayRecipeTitle(recipe, language)}</h3>
+              {language === "zh" && recipe.titleEn ? <p className="text-xs text-muted-foreground">{recipe.titleEn}</p> : null}
               <p className="mt-1 text-xs text-muted-foreground">
                 {tr("Cuisine", "菜系")}: {recipe.cuisine ?? tr("Unknown", "未知")} • {formatMealType(recipe.mealType)} • {recipe.cookingTime} {tr("min", "分钟")}
               </p>
@@ -159,7 +168,7 @@ export function RecommendationList({ recommendations, preferences, language, onT
             ))}
           </div>
 
-          <p className="text-sm text-foreground/90">{tr("Why this:", "为什么推荐：")} {recipe.reason}</p>
+          <p className="text-sm text-foreground/90">{language === "zh" ? recipe.reasonZh || recipe.reason : recipe.reason}</p>
 
           <div className="mt-3 space-y-3 rounded-xl border bg-muted/20 p-3">
             <div>
