@@ -6,7 +6,7 @@ import { getAssistantResponse } from "@/services/ai.service";
 import { ensureBaseRecipes } from "@/services/recipe-catalog.service";
 import { buildRecipeRecommendations } from "@/services/recommendation.service";
 import { jsonResponse } from "@/utils/serialize";
-
+export const dynamic = "force-dynamic";
 const chatSchema = z.object({
   prompt: z.string().trim().min(1).max(1200)
 });
