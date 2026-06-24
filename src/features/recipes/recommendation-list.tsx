@@ -79,21 +79,49 @@ export function RecommendationList({ recommendations }: Props) {
               <h3 className="font-semibold">{recipe.name}</h3>
               <p className="mt-1 text-xs text-muted-foreground">Cuisine: {recipe.cuisine ?? "Unknown"}</p>
             </div>
-            <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">{recipe.ingredientMatchPercent}% match</span>
+            <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">Match: {recipe.ingredientMatchPercent}%</span>
           </div>
 
           <p className="text-sm text-foreground/90">{recipe.reason}</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Missing: {recipe.missingIngredients.length ? recipe.missingIngredients.join(", ") : "None"}
-          </p>
+
+          <div className="mt-3 space-y-3 rounded-xl border bg-muted/20 p-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Uses</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {recipe.matchedIngredients.length > 0 ? (
+                  recipe.matchedIngredients.map((ingredient) => (
+                    <span key={`${recipe.recipeId}-use-${ingredient}`} className="rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success">
+                      ✓ {ingredient}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-muted-foreground">No matched ingredients yet.</span>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Missing</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {recipe.missingIngredients.length > 0 ? (
+                  recipe.missingIngredients.map((ingredient) => (
+                    <span key={`${recipe.recipeId}-miss-${ingredient}`} className="rounded-full bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger">
+                      ✗ {ingredient}
+                    </span>
+                  ))
+                ) : (
+                  <span className="rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success">✓ No missing ingredients</span>
+                )}
+              </div>
+            </div>
+          </div>
+
           <p className="mt-1 text-xs text-muted-foreground">
             Calories: {recipe.estimatedCalories ?? "N/A"} • Protein: {recipe.estimatedProtein ?? "N/A"} g • Carbs: {recipe.estimatedCarbs ?? "N/A"} g • Fat: {recipe.estimatedFat ?? "N/A"} g • Cook time: {recipe.cookingTime} min
           </p>
 
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-muted-foreground">
-              {recipe.matchedIngredients.length > 0 ? `On hand: ${recipe.matchedIngredients.join(", ")}` : "No matched ingredients yet."}
-            </p>
+            <p className="text-xs text-muted-foreground">Add missing ingredients to your shopping list in one tap.</p>
             <Button
               type="button"
               variant={recipe.missingIngredientsDetailed.length === 0 ? "secondary" : "default"}
@@ -104,7 +132,7 @@ export function RecommendationList({ recommendations }: Props) {
                 ? "Ready to cook"
                 : pendingRecipeId === recipe.recipeId
                   ? "Adding ingredients..."
-                  : "Add missing ingredients"}
+                  : "Add Missing Ingredients"}
             </Button>
           </div>
         </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -78,6 +79,7 @@ function formatSuggestedDate(value: string | null) {
 }
 
 export function ReceiptUploader() {
+  const searchParams = useSearchParams();
   const [file, setFile] = useState<File | null>(null);
   const [receiptUploadId, setReceiptUploadId] = useState("");
   const [retailer, setRetailer] = useState("unknown");
@@ -89,7 +91,11 @@ export function ReceiptUploader() {
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmittingSelection, setIsSubmittingSelection] = useState(false);
   const [hasAddedToInventory, setHasAddedToInventory] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const hasAutoPromptedRef = useRef(false);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const shouldAutoLaunchCamera = searchParams.get("capture") === "1";
 
   const stopPolling = () => {
     if (pollTimerRef.current) {
@@ -103,6 +109,30 @@ export function ReceiptUploader() {
       stopPolling();
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia("(max-width: 767px)");
+    const syncMobile = () => setIsMobile(mediaQuery.matches);
+    syncMobile();
+    mediaQuery.addEventListener("change", syncMobile);
+
+    return () => {
+      mediaQuery.removeEventListener("change", syncMobile);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile || !shouldAutoLaunchCamera || hasAutoPromptedRef.current) {
+      return;
+    }
+
+    hasAutoPromptedRef.current = true;
+    fileInputRef.current?.click();
+  }, [isMobile, shouldAutoLaunchCamera]);
 
   const mergeSelectedIds = (nextResults: OcrItem[]) => {
     setSelectedIds((current) => {
@@ -182,10 +212,13 @@ export function ReceiptUploader() {
       reader.readAsDataURL(nextFile);
     });
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const processReceiptFile = async (nextFile: File) => {
+    setFile(nextFile);
+    if (hasAddedToInventory) {
+      setHasAddedToInventory(false);
+    }
 
-    if (!file) {
+    if (!nextFile) {
       setStatus("Choose a receipt image first.");
       return;
     }
@@ -203,7 +236,7 @@ export function ReceiptUploader() {
 
     let imageData = "";
     try {
-      imageData = await toBase64(file);
+      imageData = await toBase64(nextFile);
     } catch (error) {
       setStatusTone("error");
       setStatus(error instanceof Error ? error.message : "Unable to read receipt image.");
@@ -214,7 +247,7 @@ export function ReceiptUploader() {
     const response = await fetch("/api/receipts/upload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fileName: file.name, mimeType: file.type })
+      body: JSON.stringify({ fileName: nextFile.name, mimeType: nextFile.type })
     });
 
     if (!response.ok) {
@@ -265,6 +298,17 @@ export function ReceiptUploader() {
     setIsUploading(false);
   };
 
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!file) {
+      setStatus("Choose a receipt image first.");
+      return;
+    }
+
+    await processReceiptFile(file);
+  };
+
   const addSelectedToInventory = async () => {
     if (hasAddedToInventory || isSubmittingSelection) {
       return;
@@ -311,18 +355,14 @@ export function ReceiptUploader() {
       };
       if (data.alreadyProcessed) {
         setStatusTone("success");
-        setStatus("Items added to inventory successfully.");
+        setStatus("Already imported");
         setHasAddedToInventory(true);
         setWorkflowStatus("COMPLETED");
         return;
       }
 
       setStatusTone("success");
-      setStatus(
-        data.addedCount > 0
-          ? `Inventory updated. ${data.createdCount} new item${data.createdCount === 1 ? "" : "s"}, ${data.mergedCount} merged.`
-          : "Items added to inventory successfully."
-      );
+      setStatus(`✓ Added ${data.addedCount} items to inventory`);
       setHasAddedToInventory(true);
       setWorkflowStatus("COMPLETED");
 
@@ -356,6 +396,7 @@ export function ReceiptUploader() {
   const canReview = workflowStatus === "REVIEW_REQUIRED" || workflowStatus === "COMPLETED";
   const disableAddButton = hasAddedToInventory || isSubmittingSelection || selectedIds.length === 0;
   const duplicateCount = results.filter((line) => line.duplicateCandidates.length > 0).length;
+  const launchCamera = () => fileInputRef.current?.click();
 
   return (
     <div className="space-y-4">
@@ -366,14 +407,27 @@ export function ReceiptUploader() {
         <CardContent>
           <form onSubmit={submit} className="space-y-3">
             <input
+              ref={fileInputRef}
               type="file"
               accept="image/*"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-              className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              capture="environment"
+              onChange={(event) => {
+                const nextFile = event.target.files?.[0] ?? null;
+                setFile(nextFile);
+                if (nextFile && isMobile) {
+                  void processReceiptFile(nextFile);
+                }
+              }}
+              className="hidden md:block md:w-full md:rounded-md md:border md:border-input md:bg-background md:px-3 md:py-2 md:text-sm"
             />
-            <Button className="w-full md:w-auto" type="submit" disabled={isUploading || workflowStatus === "PROCESSING"}>
-              {isUploading || workflowStatus === "PROCESSING" ? "Extracting..." : "Extract Items"}
+            <Button className="w-full md:hidden" type="button" onClick={launchCamera} disabled={isUploading || workflowStatus === "PROCESSING"}>
+              {isUploading || workflowStatus === "PROCESSING" ? "Extracting..." : "Open Camera"}
             </Button>
+            {!isMobile ? (
+              <Button className="w-full md:w-auto" type="submit" disabled={isUploading || workflowStatus === "PROCESSING"}>
+                {isUploading || workflowStatus === "PROCESSING" ? "Extracting..." : "Extract Items"}
+              </Button>
+            ) : null}
             {workflowStatus ? <p className="text-xs font-medium text-muted-foreground">Current status: {workflowStatus}</p> : null}
             {status ? (
               <p
@@ -643,7 +697,13 @@ export function ReceiptUploader() {
               <Button className="w-full md:w-auto" variant="outline" type="button" onClick={() => setSelectedIds([])}>
                 Clear Selection
               </Button>
-              <Button className="w-full md:w-auto" type="button" onClick={addSelectedToInventory} disabled={disableAddButton} aria-label="Add selected items to inventory">
+              <Button
+                className={hasAddedToInventory ? "w-full bg-success text-success-foreground md:w-auto" : "w-full md:w-auto"}
+                type="button"
+                onClick={addSelectedToInventory}
+                disabled={disableAddButton}
+                aria-label="Add selected items to inventory"
+              >
                 {hasAddedToInventory ? "Completed" : isSubmittingSelection ? "Adding..." : "Add Selected to Inventory"}
               </Button>
               {hasAddedToInventory ? (

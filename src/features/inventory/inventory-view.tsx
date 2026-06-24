@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ItemCategory, StorageLocation } from "@prisma/client";
 import { Search } from "lucide-react";
@@ -14,6 +16,7 @@ import {
   getExpirationBucket,
   getExpirationLabel,
   getFoodCategoryDefaults,
+  isExpiringSoonBucket,
   getSuggestedExpirationDate
 } from "@/utils/food";
 
@@ -84,12 +87,15 @@ function createDefaultForm(category: ItemCategory = "OTHER", purchaseDate = DEFA
 }
 
 export function InventoryView({ initialItems }: Props) {
+  const searchParams = useSearchParams();
   const [items, setItems] = useState(initialItems);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [form, setForm] = useState(createDefaultForm());
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [locationFilter, setLocationFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState<"name" | "expiration">("expiration");
+  const expiringFilterOn = searchParams.get("filter") === "expiring";
   const { inventoryView, search, setInventoryView, setSearch } = useUiStore();
   const categoryDefaults = getFoodCategoryDefaults(form.category);
   const suggestedExpirationDate = formatDateInput(getSuggestedExpirationDate(form.category, parseDateInput(form.purchaseDate)));
@@ -98,6 +104,13 @@ export function InventoryView({ initialItems }: Props) {
     return [...items]
       .filter((item) => (categoryFilter === "ALL" ? true : item.category === categoryFilter))
       .filter((item) => (locationFilter === "ALL" ? true : item.storageLocation === locationFilter))
+      .filter((item) => {
+        if (!expiringFilterOn) {
+          return true;
+        }
+
+        return isExpiringSoonBucket(getExpirationBucket(item.expirationDate ? new Date(item.expirationDate) : null));
+      })
       .filter((item) => item.name.toLowerCase().includes(search.toLowerCase()))
       .sort((a, b) => {
         if (sortBy === "name") {
@@ -109,11 +122,21 @@ export function InventoryView({ initialItems }: Props) {
 
         return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime();
       });
-  }, [items, categoryFilter, locationFilter, search, sortBy]);
+  }, [items, categoryFilter, locationFilter, expiringFilterOn, search, sortBy]);
 
   const resetForm = () => {
     setEditingId(null);
     setForm(createDefaultForm());
+  };
+
+  const closeEditor = () => {
+    setIsEditorOpen(false);
+    resetForm();
+  };
+
+  const openCreateEditor = () => {
+    resetForm();
+    setIsEditorOpen(true);
   };
 
   const updateCategory = (nextCategory: ItemCategory) => {
@@ -173,11 +196,12 @@ export function InventoryView({ initialItems }: Props) {
       setItems((current) => [next.item, ...current]);
     }
 
-    resetForm();
+    closeEditor();
   };
 
   const startEdit = (item: InventoryDto) => {
     setEditingId(item.id);
+    setIsEditorOpen(true);
     setForm({
       name: item.name,
       brand: item.brand ?? "",
@@ -220,131 +244,16 @@ export function InventoryView({ initialItems }: Props) {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>{editingId ? "Edit Ingredient" : "Add Ingredient"}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={saveItem} className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <Input
-              value={form.name}
-              onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-              placeholder="Ingredient name"
-              required
-            />
-            <Input
-              value={form.quantity}
-              onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))}
-              type="number"
-              step="0.01"
-              min="0"
-              required
-            />
-            <Input
-              value={form.brand}
-              onChange={(event) => setForm((current) => ({ ...current, brand: event.target.value }))}
-              placeholder="Brand"
-            />
-            <Input
-              value={form.barcode}
-              onChange={(event) => setForm((current) => ({ ...current, barcode: event.target.value }))}
-              placeholder="Barcode"
-            />
-            <Input
-              value={form.unit}
-              onChange={(event) => setForm((current) => ({ ...current, unit: event.target.value }))}
-              placeholder="Unit"
-              required
-            />
-            <Input
-              value={form.lowStockThreshold}
-              onChange={(event) => setForm((current) => ({ ...current, lowStockThreshold: event.target.value }))}
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="Low-stock threshold"
-              required
-            />
-            <Input
-              value={form.consumptionRatePerDay}
-              onChange={(event) => setForm((current) => ({ ...current, consumptionRatePerDay: event.target.value }))}
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="Consumption/day"
-            />
-            <Input
-              value={form.unitPrice}
-              onChange={(event) => setForm((current) => ({ ...current, unitPrice: event.target.value }))}
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="Unit price"
-            />
-            <select
-              value={form.category}
-              onChange={(event) => updateCategory(event.target.value as ItemCategory)}
-              className="h-11 rounded-md border border-input bg-background px-3"
-            >
-              {categories.map((category) => (
-                <option key={category} value={category}>
-                  {category.replace("_", " ")}
-                </option>
-              ))}
-            </select>
-            <select
-              value={form.storageLocation}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, storageLocation: event.target.value as StorageLocation }))
-              }
-              className="h-11 rounded-md border border-input bg-background px-3"
-            >
-              {locations.map((location) => (
-                <option key={location} value={location}>
-                  {location.replace("_", " ")}
-                </option>
-              ))}
-            </select>
-            <Input
-              type="date"
-              value={form.purchaseDate}
-              onChange={(event) => updatePurchaseDate(event.target.value)}
-            />
-            <Input
-              type="date"
-              value={form.expirationDate}
-              onChange={(event) => setForm((current) => ({ ...current, expirationDate: event.target.value }))}
-            />
-            <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 px-3 py-3 text-sm text-muted-foreground md:col-span-2">
-              <p className="font-medium text-foreground">Smart defaults for {formatCategoryLabel(form.category)}</p>
-              <p className="mt-1">
-                Store in {formatCategoryLabel(categoryDefaults.storageLocation)} and use within {categoryDefaults.expirationDays ?? "a flexible"} day{categoryDefaults.expirationDays === 1 ? "" : "s"}.
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant="secondary" onClick={() => setForm((current) => ({ ...current, expirationDate: suggestedExpirationDate }))}>
-                  Apply suggested expiration
-                </Button>
-                <span className="self-center text-xs text-muted-foreground">Suggested date: {suggestedExpirationDate || "No date"}</span>
-              </div>
-            </div>
-            <div className="md:col-span-2">
-              <Input
-                value={form.notes}
-                onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-                placeholder="Notes"
-              />
-            </div>
-            <div className="flex flex-col gap-2 md:col-span-2 md:flex-row">
-              <Button className="w-full md:w-auto" type="submit">{editingId ? "Save Changes" : "Add to Inventory"}</Button>
-              {editingId ? (
-                <Button className="w-full md:w-auto" type="button" variant="secondary" onClick={resetForm}>
-                  Cancel Edit
-                </Button>
-              ) : null}
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      {expiringFilterOn ? (
+        <Card>
+          <CardContent className="flex flex-col gap-3 py-4 text-sm md:flex-row md:items-center md:justify-between">
+            <p className="font-medium">Showing expiring items only.</p>
+            <Button asChild type="button" variant="outline" size="sm">
+              <Link href="/inventory">Clear filter</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
         <div className="relative flex-1">
@@ -386,6 +295,7 @@ export function InventoryView({ initialItems }: Props) {
         <Button variant="secondary" onClick={() => setInventoryView(inventoryView === "cards" ? "table" : "cards")}>
           {inventoryView === "cards" ? "Table View" : "Card View"}
         </Button>
+        <Button onClick={openCreateEditor}>+ Add Ingredient</Button>
       </div>
 
       {filtered.length === 0 ? (
@@ -485,6 +395,138 @@ export function InventoryView({ initialItems }: Props) {
           </CardContent>
         </Card>
       )}
+
+      {isEditorOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/40 md:items-center md:justify-center" role="dialog" aria-modal="true">
+          <button type="button" aria-label="Close" className="absolute inset-0 h-full w-full" onClick={closeEditor} />
+          <div className="relative z-10 max-h-[92vh] w-full overflow-y-auto rounded-t-3xl bg-background p-4 pb-6 shadow-2xl md:max-h-[85vh] md:max-w-3xl md:rounded-2xl md:p-6">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Food Inventory</p>
+                <h2 className="mt-1 text-xl font-semibold">{editingId ? "Edit Ingredient" : "Add Ingredient"}</h2>
+              </div>
+              <Button type="button" variant="ghost" size="sm" onClick={closeEditor}>Close</Button>
+            </div>
+
+            <form onSubmit={saveItem} className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <Input
+                value={form.name}
+                onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                placeholder="Ingredient name"
+                required
+              />
+              <Input
+                value={form.quantity}
+                onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))}
+                type="number"
+                step="0.01"
+                min="0"
+                required
+              />
+              <Input
+                value={form.brand}
+                onChange={(event) => setForm((current) => ({ ...current, brand: event.target.value }))}
+                placeholder="Brand"
+              />
+              <Input
+                value={form.barcode}
+                onChange={(event) => setForm((current) => ({ ...current, barcode: event.target.value }))}
+                placeholder="Barcode"
+              />
+              <Input
+                value={form.unit}
+                onChange={(event) => setForm((current) => ({ ...current, unit: event.target.value }))}
+                placeholder="Unit"
+                required
+              />
+              <Input
+                value={form.lowStockThreshold}
+                onChange={(event) => setForm((current) => ({ ...current, lowStockThreshold: event.target.value }))}
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Low-stock threshold"
+                required
+              />
+              <Input
+                value={form.consumptionRatePerDay}
+                onChange={(event) => setForm((current) => ({ ...current, consumptionRatePerDay: event.target.value }))}
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Consumption/day"
+              />
+              <Input
+                value={form.unitPrice}
+                onChange={(event) => setForm((current) => ({ ...current, unitPrice: event.target.value }))}
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Unit price"
+              />
+              <select
+                value={form.category}
+                onChange={(event) => updateCategory(event.target.value as ItemCategory)}
+                className="h-11 rounded-md border border-input bg-background px-3"
+              >
+                {categories.map((category) => (
+                  <option key={category} value={category}>
+                    {category.replace("_", " ")}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={form.storageLocation}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, storageLocation: event.target.value as StorageLocation }))
+                }
+                className="h-11 rounded-md border border-input bg-background px-3"
+              >
+                {locations.map((location) => (
+                  <option key={location} value={location}>
+                    {location.replace("_", " ")}
+                  </option>
+                ))}
+              </select>
+              <Input
+                type="date"
+                value={form.purchaseDate}
+                onChange={(event) => updatePurchaseDate(event.target.value)}
+              />
+              <Input
+                type="date"
+                value={form.expirationDate}
+                onChange={(event) => setForm((current) => ({ ...current, expirationDate: event.target.value }))}
+              />
+              <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 px-3 py-3 text-sm text-muted-foreground md:col-span-2">
+                <p className="font-medium text-foreground">Smart defaults for {formatCategoryLabel(form.category)}</p>
+                <p className="mt-1">
+                  Store in {formatCategoryLabel(categoryDefaults.storageLocation)} and use within {categoryDefaults.expirationDays ?? "a flexible"} day{categoryDefaults.expirationDays === 1 ? "" : "s"}.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="secondary" onClick={() => setForm((current) => ({ ...current, expirationDate: suggestedExpirationDate }))}>
+                    Apply suggested expiration
+                  </Button>
+                  <span className="self-center text-xs text-muted-foreground">Suggested date: {suggestedExpirationDate || "No date"}</span>
+                </div>
+              </div>
+              <div className="md:col-span-2">
+                <Input
+                  value={form.notes}
+                  onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+                  placeholder="Notes"
+                />
+              </div>
+              <div className="flex flex-col gap-2 md:col-span-2 md:flex-row">
+                <Button className="w-full md:w-auto" type="submit">{editingId ? "Save Changes" : "Add to Inventory"}</Button>
+                <Button className="w-full md:w-auto" type="button" variant="secondary" onClick={closeEditor}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

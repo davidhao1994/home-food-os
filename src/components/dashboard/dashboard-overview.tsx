@@ -54,33 +54,38 @@ export function DashboardOverview({
 }: DashboardOverviewProps) {
   const language = useUiStore((state) => state.language);
   const topRecommendation = recommendations[0] ?? null;
-  const todayTasks: Array<{
-    label: string;
-    value: number;
-    detail: string;
-    href: Route;
-    icon: typeof AlertTriangle;
-  }> = [
+  const todayActions: Array<{ id: string; emoji: string; title: string; detail: string; href: Route; icon: typeof AlertTriangle }> = [
     {
-      label: "Use soon",
-      value: expiringSoon,
-      detail: expiringSoon > 0 ? "Move expiring food into tonight's plan." : "No urgent spoilage risk right now.",
+      id: "expiring",
+      emoji: "🥚",
+      title: expiringSoon > 0 ? `${expiringSoon} food item${expiringSoon === 1 ? "" : "s"} expiring soon` : "No urgent expiring foods",
+      detail: expiringSoon > 0 ? "Use these first to avoid waste." : "You are clear on spoilage risk today.",
       href: "/inventory?filter=expiring" as Route,
       icon: AlertTriangle
     },
     {
-      label: "Buy next",
-      value: shoppingCount,
-      detail: shoppingCount > 0 ? "Your list is waiting for the next grocery run." : "Shopping list is clear for now.",
+      id: "shopping",
+      emoji: "🛒",
+      title: shoppingCount > 0 ? `${shoppingCount} item${shoppingCount === 1 ? "" : "s"} to buy` : "Shopping list is clear",
+      detail: shoppingCount > 0 ? "Complete the list before your next meal prep." : "No missing essentials are tracked right now.",
       href: "/shopping",
       icon: ShoppingCart
     },
     {
-      label: "Cook tonight",
-      value: recommendedCount,
-      detail: topRecommendation ? topRecommendation.name : "Add a few staples to unlock recipe matches.",
+      id: "recipes",
+      emoji: "🍜",
+      title: topRecommendation ? `Cook ${topRecommendation.name} tonight` : "No strong dinner match yet",
+      detail: topRecommendation ? `${topRecommendation.matchScore}% match with your current inventory.` : "Add or scan inventory to unlock better matches.",
       href: "/recipes",
       icon: ChefHat
+    },
+    {
+      id: "nutrition",
+      emoji: "🥗",
+      title: `Protein on hand: ${Math.round(nutritionSummary.totalProtein)} g`,
+      detail: `${Math.round(nutritionSummary.totalCalories)} kcal available for planning today.`,
+      href: "/nutrition",
+      icon: BarChart3
     }
   ];
 
@@ -98,9 +103,9 @@ export function DashboardOverview({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="max-w-2xl">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">Today</p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight md:text-3xl">Plan the next 24 hours before food gets wasted.</h2>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight md:text-3xl">What should I do today?</h2>
                 <p className="mt-2 text-sm text-muted-foreground md:text-base">
-                  Start with the fast actions that keep the kitchen current: scan receipts, use expiring items, and close missing ingredients in one tap.
+                  Start with high-priority actions: prevent spoilage, close shopping gaps, and pick tonight&apos;s best recipe.
                 </p>
               </div>
               <div className="rounded-2xl border border-primary/20 bg-background/70 px-4 py-3 text-right shadow-sm">
@@ -110,22 +115,25 @@ export function DashboardOverview({
               </div>
             </div>
 
-            <div className="mt-5 grid gap-3 md:grid-cols-3">
-              {todayTasks.map((task) => {
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {todayActions.map((task) => {
                 const Icon = task.icon;
 
                 return (
                   <Link
-                    key={task.label}
+                    key={task.id}
                     href={task.href}
-                    className="rounded-2xl border bg-background/75 p-4 transition hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="rounded-2xl border bg-background/75 p-4 transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-background active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{task.label}</p>
-                        <p className="mt-2 text-3xl font-semibold">{task.value}</p>
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Today</p>
+                        <p className="mt-2 text-base font-semibold leading-tight text-foreground">
+                          <span className="mr-2" aria-hidden="true">{task.emoji}</span>
+                          {task.title}
+                        </p>
                       </div>
-                      <Icon className="h-5 w-5 text-primary" />
+                      <Icon className="h-5 w-5 shrink-0 text-primary" />
                     </div>
                     <p className="mt-3 text-sm text-muted-foreground">{task.detail}</p>
                   </Link>
@@ -141,7 +149,7 @@ export function DashboardOverview({
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-2">
             <Button asChild className="col-span-2 h-12 justify-start rounded-2xl">
-              <Link href="/receipts" aria-label={t(language, "scanReceipt")}>
+              <Link href={{ pathname: "/receipts", query: { capture: "1" } }} aria-label={t(language, "scanReceipt")}>
                 <Receipt className="mr-2 h-4 w-4" />
                 {t(language, "scanReceipt")}
               </Link>

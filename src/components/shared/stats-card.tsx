@@ -16,7 +16,7 @@ type StatsCardProps = {
 
 export function StatsCard({ title, value, icon, helper, href, ariaLabel }: StatsCardProps) {
   const content = (
-    <Card className={cn(href && "h-full transition hover:border-primary/40 hover:shadow-sm active:scale-[0.995]")}>
+    <Card className={cn(href && "h-full transition duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md active:translate-y-0 active:scale-[0.99]")}>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm text-muted-foreground">{title}</CardTitle>
       </CardHeader>
@@ -41,7 +41,7 @@ export function StatsCard({ title, value, icon, helper, href, ariaLabel }: Stats
     <Link
       href={href as Route}
       aria-label={ariaLabel ?? `Open ${title}`}
-      className="block h-full cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="block h-full cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       {content}
     </Link>

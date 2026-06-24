@@ -71,17 +71,17 @@ export function NavLinks({ showProfile, mode = "desktop" }: NavLinksProps) {
             return (
               <Link
                 key={link.href}
-                href={link.href}
+                href={isPrimary ? { pathname: "/receipts", query: { capture: "1" } } : link.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-medium text-muted-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  active && !isPrimary && "bg-muted text-foreground",
+                  "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-medium text-muted-foreground/70 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  active && !isPrimary && "bg-primary text-primary-foreground shadow-sm",
                   isPrimary &&
                     "-translate-y-4 rounded-[1.4rem] bg-primary px-4 py-3 text-primary-foreground shadow-[0_18px_40px_-20px_rgba(0,0,0,0.55)]",
-                  isPrimary && active && "ring-2 ring-primary/30"
+                  isPrimary && active && "ring-2 ring-primary/40"
                 )}
               >
-                <Icon className={cn(isPrimary ? "h-5 w-5" : "h-4.5 w-4.5", active && !isPrimary && "text-primary")} />
+                <Icon className={cn(isPrimary ? "h-5 w-5" : "h-4.5 w-4.5", active && !isPrimary && "text-primary-foreground")} />
                 <span className={cn("truncate", isPrimary && "text-xs")}>{isPrimary ? "Scan" : t(language, link.labelKey)}</span>
               </Link>
             );
@@ -103,12 +103,12 @@ export function NavLinks({ showProfile, mode = "desktop" }: NavLinksProps) {
             href={link.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "touch-manipulation flex min-w-fit shrink-0 items-center gap-2 rounded-xl border border-transparent px-3 py-3.5 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "touch-manipulation flex min-w-fit shrink-0 items-center gap-2 rounded-xl border border-transparent px-3 py-3.5 text-sm font-medium text-muted-foreground/80 transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active &&
-                "border-primary/40 bg-primary/10 text-foreground shadow-sm md:border-transparent md:bg-muted md:text-foreground"
+                "border-primary/60 bg-primary text-primary-foreground shadow-sm md:border-primary/30 md:bg-primary/15 md:text-foreground"
             )}
           >
-            <Icon className={cn("h-4 w-4", active && "text-primary md:text-inherit")} />
+            <Icon className={cn("h-4 w-4", active && "text-primary-foreground md:text-primary")} />
             {t(language, link.labelKey)}
           </Link>
         );
