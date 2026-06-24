@@ -1,9 +1,13 @@
 node_modules
 .next
 out
+.local/
 .env
 .env.local
 .env.production
+tsconfig.tsbuildinfo
+verification_evidence/
+*.log
 coverage
 prisma/dev.db
 .DS_Store
