@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,8 +55,11 @@ export function ReceiptUploader() {
   const [results, setResults] = useState<OcrItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [status, setStatus] = useState("");
+  const [statusTone, setStatusTone] = useState<"info" | "success" | "error">("info");
   const [workflowStatus, setWorkflowStatus] = useState<ReceiptWorkflowStatus | "">("");
   const [isUploading, setIsUploading] = useState(false);
+  const [isSubmittingSelection, setIsSubmittingSelection] = useState(false);
+  const [hasAddedToInventory, setHasAddedToInventory] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = () => {
@@ -90,11 +94,13 @@ export function ReceiptUploader() {
     mergeSelectedIds(payload.ocrResults ?? []);
 
     if (nextStatus === "FAILED") {
+      setStatusTone("error");
       setStatus(payload.error ?? "OCR failed. Please retry with a clearer image.");
       stopPolling();
       return;
     }
 
+    setStatusTone("info");
     setStatus(statusMessage(nextStatus));
 
     if (TERMINAL_STATUSES.includes(nextStatus)) {
@@ -107,6 +113,7 @@ export function ReceiptUploader() {
 
     if (!response.ok) {
       setWorkflowStatus("FAILED");
+      setStatusTone("error");
       setStatus("Unable to fetch receipt OCR status.");
       stopPolling();
       return;
@@ -156,12 +163,15 @@ export function ReceiptUploader() {
     setRetailer("unknown");
     setResults([]);
     setSelectedIds([]);
+    setHasAddedToInventory(false);
+    setStatusTone("info");
     setStatus("Uploading receipt...");
 
     let imageData = "";
     try {
       imageData = await toBase64(file);
     } catch (error) {
+      setStatusTone("error");
       setStatus(error instanceof Error ? error.message : "Unable to read receipt image.");
       setIsUploading(false);
       return;
@@ -174,6 +184,7 @@ export function ReceiptUploader() {
     });
 
     if (!response.ok) {
+      setStatusTone("error");
       setStatus("Unable to upload this receipt right now.");
       setWorkflowStatus("FAILED");
       setIsUploading(false);
@@ -184,9 +195,11 @@ export function ReceiptUploader() {
     const nextReceiptUploadId = data.receiptUploadId;
     setReceiptUploadId(nextReceiptUploadId);
     setWorkflowStatus(data.status ?? "UPLOADED");
+    setStatusTone("info");
     setStatus(statusMessage(data.status ?? "UPLOADED"));
     startPolling(nextReceiptUploadId);
 
+    setStatusTone("info");
     setStatus("Receipt uploaded. OCR started.");
     setWorkflowStatus("PROCESSING");
 
@@ -205,10 +218,12 @@ export function ReceiptUploader() {
 
       if (!processResponse.ok) {
         setWorkflowStatus("FAILED");
+        setStatusTone("error");
         setStatus(payload.error ?? "Receipt OCR failed. Please retry with a clearer image.");
       }
     })().catch(() => {
       setWorkflowStatus("FAILED");
+      setStatusTone("error");
       setStatus("Receipt OCR failed. Please retry with a clearer image.");
       stopPolling();
     });
@@ -217,38 +232,67 @@ export function ReceiptUploader() {
   };
 
   const addSelectedToInventory = async () => {
+    if (hasAddedToInventory || isSubmittingSelection) {
+      return;
+    }
+
     if (!receiptUploadId || selectedIds.length === 0) {
+      setStatusTone("error");
       setStatus("Select at least one extracted item to add into inventory.");
       return;
     }
 
-    const response = await fetch("/api/receipts/confirm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        receiptUploadId,
-        reviewedLines: results.map((line) => ({
-          id: line.id,
-          selected: selectedIds.includes(line.id),
-          extractedName: line.extractedName,
-          extractedQuantity: line.extractedQuantity,
-          extractedUnit: line.extractedUnit,
-          extractedPrice: line.extractedPrice
-        }))
-      })
-    });
+    setIsSubmittingSelection(true);
 
-    if (!response.ok) {
+    try {
+      const response = await fetch("/api/receipts/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          receiptUploadId,
+          reviewedLines: results.map((line) => ({
+            id: line.id,
+            selected: selectedIds.includes(line.id),
+            extractedName: line.extractedName,
+            extractedQuantity: line.extractedQuantity,
+            extractedUnit: line.extractedUnit,
+            extractedPrice: line.extractedPrice
+          }))
+        })
+      });
+
+      if (!response.ok) {
+        setStatusTone("error");
+        setStatus("Unable to add the selected receipt items into inventory.");
+        return;
+      }
+
+      const data = (await response.json()) as { addedCount: number; alreadyProcessed?: boolean };
+      if (data.alreadyProcessed) {
+        setStatusTone("success");
+        setStatus("Items added to inventory successfully.");
+        setHasAddedToInventory(true);
+        setWorkflowStatus("COMPLETED");
+        return;
+      }
+
+      setStatusTone("success");
+      setStatus(
+        data.addedCount > 0
+          ? `Items added to inventory successfully. (${data.addedCount} items)`
+          : "Items added to inventory successfully."
+      );
+      setHasAddedToInventory(true);
+      setWorkflowStatus("COMPLETED");
+
+      if (receiptUploadId) {
+        void pollReceiptStatus(receiptUploadId);
+      }
+    } catch {
+      setStatusTone("error");
       setStatus("Unable to add the selected receipt items into inventory.");
-      return;
-    }
-
-    const data = await response.json();
-    setStatus(`Added ${data.addedCount} selected receipt items into inventory.`);
-    setWorkflowStatus("COMPLETED");
-
-    if (receiptUploadId) {
-      void pollReceiptStatus(receiptUploadId);
+    } finally {
+      setIsSubmittingSelection(false);
     }
   };
 
@@ -261,6 +305,7 @@ export function ReceiptUploader() {
   };
 
   const canReview = workflowStatus === "REVIEW_REQUIRED" || workflowStatus === "COMPLETED";
+  const disableAddButton = hasAddedToInventory || isSubmittingSelection || selectedIds.length === 0;
 
   return (
     <div className="space-y-4">
@@ -280,7 +325,20 @@ export function ReceiptUploader() {
               {isUploading || workflowStatus === "PROCESSING" ? "Extracting..." : "Extract Items"}
             </Button>
             {workflowStatus ? <p className="text-xs font-medium text-muted-foreground">Current status: {workflowStatus}</p> : null}
-            {status ? <p className="text-sm text-muted-foreground">{status}</p> : null}
+            {status ? (
+              <p
+                className={
+                  statusTone === "error"
+                    ? "rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
+                    : statusTone === "success"
+                      ? "rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success"
+                      : "rounded-md border border-border/80 bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+                }
+                role={statusTone === "error" ? "alert" : "status"}
+              >
+                {status}
+              </p>
+            ) : null}
             <p className="text-xs text-muted-foreground">Supported first: Costco, Walmart, and Safeway receipts.</p>
           </form>
         </CardContent>
@@ -293,7 +351,72 @@ export function ReceiptUploader() {
         <CardContent className="space-y-3 text-sm">
           {results.length === 0 ? <p className="text-muted-foreground">No OCR results yet.</p> : null}
           {results.length > 0 ? (
-            <div className="overflow-x-auto rounded-lg border">
+            <>
+            <div className="space-y-3 md:hidden">
+              {results.map((line) => (
+                <div key={line.id} className="rounded-lg border p-3">
+                  <label className="mb-2 inline-flex items-center gap-2 text-sm font-medium">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(line.id)}
+                      onChange={() => toggleSelected(line.id)}
+                      aria-label={`Include ${line.extractedName}`}
+                    />
+                    Include item
+                  </label>
+                  <div className="grid grid-cols-1 gap-2">
+                    <label className="text-xs text-muted-foreground">Item Name</label>
+                    <input
+                      value={line.extractedName}
+                      onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedName: event.target.value }))}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      disabled={!canReview}
+                    />
+                    <label className="text-xs text-muted-foreground">Quantity</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={line.extractedQuantity ?? ""}
+                      onChange={(event) =>
+                        updateLine(line.id, (current) => ({
+                          ...current,
+                          extractedQuantity: event.target.value ? Number(event.target.value) : null
+                        }))
+                      }
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      disabled={!canReview}
+                    />
+                    <label className="text-xs text-muted-foreground">Unit</label>
+                    <input
+                      value={line.extractedUnit ?? ""}
+                      onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedUnit: event.target.value || null }))}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      disabled={!canReview}
+                    />
+                    <label className="text-xs text-muted-foreground">Price</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={line.extractedPrice ?? ""}
+                      onChange={(event) =>
+                        updateLine(line.id, (current) => ({
+                          ...current,
+                          extractedPrice: event.target.value ? Number(event.target.value) : null
+                        }))
+                      }
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      disabled={!canReview}
+                    />
+                    <p className="text-xs text-muted-foreground">Confidence: {line.confidence != null ? line.confidence.toFixed(2) : "N/A"}</p>
+                    <p className="text-xs font-medium">Status: {line.lineStatus}</p>
+                    <p className="text-xs text-muted-foreground">Source: {line.rawLine ?? "N/A"}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto rounded-lg border md:block">
               <table className="w-full min-w-[880px] border-collapse">
                 <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <tr>
@@ -368,15 +491,21 @@ export function ReceiptUploader() {
                 </tbody>
               </table>
             </div>
+            </>
           ) : null}
           {results.length > 0 && canReview ? (
-            <div className="flex flex-col gap-2 pt-2 md:flex-row">
+            <div className="sticky bottom-[max(env(safe-area-inset-bottom),0px)] flex flex-col gap-2 rounded-xl border bg-card/95 p-2 pt-2 backdrop-blur md:static md:border-0 md:bg-transparent md:p-0 md:flex-row">
               <Button className="w-full md:w-auto" variant="secondary" type="button" onClick={() => setSelectedIds(results.map((line) => line.id))}>
                 Select All
               </Button>
-              <Button className="w-full md:w-auto" type="button" onClick={addSelectedToInventory}>
-                Add Selected to Inventory
+              <Button className="w-full md:w-auto" type="button" onClick={addSelectedToInventory} disabled={disableAddButton} aria-label="Add selected items to inventory">
+                {hasAddedToInventory ? "Completed" : isSubmittingSelection ? "Adding..." : "Add Selected to Inventory"}
               </Button>
+              {hasAddedToInventory ? (
+                <Button className="w-full md:w-auto" type="button" variant="outline" asChild>
+                  <Link href="/inventory" aria-label="View inventory">View Inventory</Link>
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </CardContent>

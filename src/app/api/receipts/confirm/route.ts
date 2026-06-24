@@ -48,6 +48,10 @@ export async function POST(request: Request) {
     return jsonResponse({ error: "Receipt not found" }, { status: 404 });
   }
 
+  if (receipt.status === "COMPLETED") {
+    return jsonResponse({ addedCount: 0, alreadyProcessed: true });
+  }
+
   const selected = parsed.data.reviewedLines.filter((line) => line.selected);
   if (selected.length === 0) {
     return jsonResponse({ error: "Select at least one line to add into inventory" }, { status: 400 });
@@ -64,7 +68,22 @@ export async function POST(request: Request) {
 
   const selectedById = new Map(selected.map((line) => [line.id, line]));
 
-  await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
+    const lockResult = await tx.receiptUpload.updateMany({
+      where: {
+        id: receipt.id,
+        userId: user.id,
+        status: { not: "COMPLETED" }
+      },
+      data: {
+        status: "PROCESSING"
+      }
+    });
+
+    if (lockResult.count === 0) {
+      return { addedCount: 0, alreadyProcessed: true as const };
+    }
+
     for (const line of parsed.data.reviewedLines) {
       await tx.ocrResult.updateMany({
         where: { id: line.id, receiptUploadId: receipt.id },
@@ -104,7 +123,9 @@ export async function POST(request: Request) {
       where: { id: receipt.id },
       data: { status: "COMPLETED", processedAt: new Date() }
     });
+
+    return { addedCount: selected.length, alreadyProcessed: false as const };
   });
 
-  return jsonResponse({ addedCount: selected.length });
+  return jsonResponse(result);
 }
