@@ -17,7 +17,7 @@ export default async function RecipesPage() {
 
   return (
     <div>
-      <PageHeader title="Smart Recipe Recommendations" subtitle="Weighted scoring with diversity refresh, preference actions, and recipe library source management." />
+      <PageHeader title="Smart Recipe Recommendations / 智能菜谱推荐" subtitle="Cook tonight, use expiring foods, and discover quick personalized ideas. / 今晚吃什么、消耗临期食材、快速找到更合适的菜谱。" />
       <RecommendationQueryView initialRecommendations={recommendations} />
     </div>
   );

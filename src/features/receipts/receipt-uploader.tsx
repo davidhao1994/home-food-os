@@ -97,6 +97,10 @@ function formatSuggestedDate(value: string | null) {
   return new Date(value).toLocaleDateString();
 }
 
+function tr(language: "en" | "zh", en: string, zh: string) {
+  return language === "zh" ? zh : en;
+}
+
 export function ReceiptUploader() {
   const language = useUiStore((state) => state.language);
   const searchParams = useSearchParams();
@@ -113,7 +117,8 @@ export function ReceiptUploader() {
   const [hasAddedToInventory, setHasAddedToInventory] = useState(false);
   const [corrections, setCorrections] = useState<ReceiptCorrectionStore>({});
   const [isMobile, setIsMobile] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const libraryInputRef = useRef<HTMLInputElement | null>(null);
   const hasAutoPromptedRef = useRef(false);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const shouldAutoLaunchCamera = searchParams.get("capture") === "1";
@@ -178,16 +183,16 @@ export function ReceiptUploader() {
     }
 
     hasAutoPromptedRef.current = true;
-    fileInputRef.current?.click();
+    cameraInputRef.current?.click();
   }, [isMobile, shouldAutoLaunchCamera]);
 
   const mergeSelectedIds = (nextResults: OcrItem[]) => {
     setSelectedIds((current) => {
       if (current.length > 0) {
-        return current.filter((id) => nextResults.some((line) => line.id === id));
+        return current.filter((id) => nextResults.some((line) => line.id === id && line.lineStatus !== "REJECTED"));
       }
 
-      return nextResults.map((line) => line.id);
+      return nextResults.filter((line) => line.lineStatus !== "REJECTED").map((line) => line.id);
     });
   };
 
@@ -354,17 +359,6 @@ export function ReceiptUploader() {
     setIsUploading(false);
   };
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
-
-    if (!file) {
-      setStatus("Choose a receipt image first.");
-      return;
-    }
-
-    await processReceiptFile(file);
-  };
-
   const addSelectedToInventory = async () => {
     if (hasAddedToInventory || isSubmittingSelection) {
       return;
@@ -457,50 +451,86 @@ export function ReceiptUploader() {
     }));
   };
 
-  const setMergeChoice = (id: string, strategy: MergeStrategy, existingInventoryItemId: string | null) => {
-    updateLine(id, (current) => ({
-      ...current,
-      mergeStrategy: strategy,
-      existingInventoryItemId
-    }));
-  };
-
   const canReview = workflowStatus === "REVIEW_REQUIRED" || workflowStatus === "COMPLETED";
   const disableAddButton = hasAddedToInventory || isSubmittingSelection || selectedIds.length === 0;
   const duplicateCount = results.filter((line) => line.duplicateCandidates.length > 0).length;
-  const launchCamera = () => fileInputRef.current?.click();
+  const needsReviewItems = results.filter((line) => line.needsReview && line.lineStatus !== "REJECTED");
+  const readyItems = results.filter((line) => !line.needsReview && line.lineStatus !== "REJECTED");
+  const ignoredItems = results.filter((line) => line.lineStatus === "REJECTED");
+  const launchCamera = () => cameraInputRef.current?.click();
+  const launchLibrary = () => libraryInputRef.current?.click();
+
+  const onFilePicked = (nextFile: File | null) => {
+    if (!nextFile) {
+      return;
+    }
+
+    setFile(nextFile);
+    void processReceiptFile(nextFile);
+  };
+
+  const markSelectedIgnored = () => {
+    if (selectedIds.length === 0) {
+      return;
+    }
+
+    const idsToIgnore = new Set(selectedIds);
+
+    setResults((current) =>
+      current.map((line) =>
+        idsToIgnore.has(line.id)
+          ? {
+              ...line,
+              lineStatus: "REJECTED",
+              mergeStrategy: "CREATE_NEW",
+              existingInventoryItemId: null
+            }
+          : line
+      )
+    );
+
+    setSelectedIds((current) => current.filter((id) => !idsToIgnore.has(id)));
+  };
 
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Scan a receipt into today&apos;s inventory</CardTitle>
+          <CardTitle>{tr(language, "Scan a receipt into today's inventory", "扫描小票并加入今日库存")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={submit} className="space-y-3">
+          <div className="space-y-3">
             <input
-              ref={fileInputRef}
+              ref={cameraInputRef}
               type="file"
               accept="image/*"
               capture="environment"
-              onChange={(event) => {
-                const nextFile = event.target.files?.[0] ?? null;
-                setFile(nextFile);
-                if (nextFile && isMobile) {
-                  void processReceiptFile(nextFile);
-                }
-              }}
-              className="hidden md:block md:w-full md:rounded-md md:border md:border-input md:bg-background md:px-3 md:py-2 md:text-sm"
+              onChange={(event) => onFilePicked(event.target.files?.[0] ?? null)}
+              className="hidden"
             />
-            <Button className="w-full md:hidden" type="button" onClick={launchCamera} disabled={isUploading || workflowStatus === "PROCESSING"}>
-              {isUploading || workflowStatus === "PROCESSING" ? "Extracting..." : "Open Camera"}
-            </Button>
-            {!isMobile ? (
-              <Button className="w-full md:w-auto" type="submit" disabled={isUploading || workflowStatus === "PROCESSING"}>
-                {isUploading || workflowStatus === "PROCESSING" ? "Extracting..." : "Extract Items"}
+            <input
+              ref={libraryInputRef}
+              type="file"
+              accept="image/*"
+              onChange={(event) => onFilePicked(event.target.files?.[0] ?? null)}
+              className="hidden"
+            />
+
+            <div className="grid gap-2 md:grid-cols-2">
+              <Button className="h-11 w-full" type="button" onClick={launchCamera} disabled={isUploading || workflowStatus === "PROCESSING"}>
+                {isUploading || workflowStatus === "PROCESSING" ? tr(language, "Extracting...", "识别中...") : tr(language, "Take Photo", "拍照")}
               </Button>
+              <Button className="h-11 w-full" type="button" variant="secondary" onClick={launchLibrary} disabled={isUploading || workflowStatus === "PROCESSING"}>
+                {tr(language, "Upload from Library", "从相册上传")}
+              </Button>
+            </div>
+
+            {isMobile && shouldAutoLaunchCamera ? (
+              <p className="text-xs text-muted-foreground">{tr(language, "Camera opened automatically. You can still choose Upload from Library.", "已自动打开相机，你仍可选择从相册上传。")}</p>
             ) : null}
-            {workflowStatus ? <p className="text-xs font-medium text-muted-foreground">Current status: {workflowStatus}</p> : null}
+            {file ? <p className="text-xs text-muted-foreground">{tr(language, "Selected file:", "已选择文件：")} {file.name}</p> : null}
+            {workflowStatus ? <p className="text-xs font-medium text-muted-foreground">{tr(language, "Current status:", "当前状态：")} {workflowStatus}</p> : null}
+
             {status ? (
               <p
                 className={
@@ -515,292 +545,210 @@ export function ReceiptUploader() {
                 {status}
               </p>
             ) : null}
-            <p className="text-xs text-muted-foreground">Supported first: Costco, Walmart, and Safeway receipts.</p>
-          </form>
+
+            <p className="text-xs text-muted-foreground">{tr(language, "Supported first: Costco, Walmart, and Safeway receipts.", "当前优先支持：Costco、Walmart、Safeway 小票。")}</p>
+          </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>OCR Results ({retailer})</CardTitle>
+          <CardTitle>{tr(language, "OCR Results", "识别结果")} ({retailer})</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
-          {results.length === 0 ? <p className="text-muted-foreground">No OCR results yet.</p> : null}
+          {results.length === 0 ? <p className="text-muted-foreground">{tr(language, "No OCR results yet.", "暂无识别结果。")}</p> : null}
           {results.length > 0 ? (
             <>
-            <div className="grid grid-cols-2 gap-2 rounded-2xl border bg-muted/20 p-3 text-xs md:grid-cols-4">
-              <div>
-                <p className="font-medium uppercase tracking-wide text-muted-foreground">Lines</p>
-                <p className="mt-1 text-xl font-semibold text-foreground">{results.length}</p>
+              <div className="grid grid-cols-2 gap-2 rounded-2xl border bg-muted/20 p-3 text-xs md:grid-cols-4">
+                <div>
+                  <p className="font-medium uppercase tracking-wide text-muted-foreground">{tr(language, "Ready to Import", "可直接导入")}</p>
+                  <p className="mt-1 text-xl font-semibold text-foreground">{readyItems.length}</p>
+                </div>
+                <div>
+                  <p className="font-medium uppercase tracking-wide text-muted-foreground">{tr(language, "Needs Review", "需要确认")}</p>
+                  <p className="mt-1 text-xl font-semibold text-foreground">{needsReviewItems.length}</p>
+                </div>
+                <div>
+                  <p className="font-medium uppercase tracking-wide text-muted-foreground">{tr(language, "Ignored", "已忽略")}</p>
+                  <p className="mt-1 text-xl font-semibold text-foreground">{ignoredItems.length}</p>
+                </div>
+                <div>
+                  <p className="font-medium uppercase tracking-wide text-muted-foreground">{tr(language, "Duplicates", "重复项")}</p>
+                  <p className="mt-1 text-xl font-semibold text-foreground">{duplicateCount}</p>
+                </div>
               </div>
-              <div>
-                <p className="font-medium uppercase tracking-wide text-muted-foreground">Selected</p>
-                <p className="mt-1 text-xl font-semibold text-foreground">{selectedIds.length}</p>
+
+              <div className="grid gap-2 md:grid-cols-3">
+                <Button type="button" variant="secondary" onClick={() => setSelectedIds(readyItems.map((line) => line.id))}>
+                  {tr(language, "Import all confident items", "导入全部高置信度项")}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setSelectedIds(needsReviewItems.map((line) => line.id))}>
+                  {tr(language, "Review only uncertain items", "仅查看低置信度项")}
+                </Button>
+                <Button type="button" variant="outline" onClick={markSelectedIgnored}>
+                  {tr(language, "Ignore selected", "忽略所选")}
+                </Button>
               </div>
-              <div>
-                <p className="font-medium uppercase tracking-wide text-muted-foreground">Duplicates</p>
-                <p className="mt-1 text-xl font-semibold text-foreground">{duplicateCount}</p>
-              </div>
-              <div>
-                <p className="font-medium uppercase tracking-wide text-muted-foreground">Mode</p>
-                <p className="mt-1 text-sm font-medium text-foreground">Review before save</p>
-              </div>
-            </div>
-            <div className="space-y-3 md:hidden">
-              {results.map((line) => (
-                <div key={line.id} className="rounded-2xl border bg-card p-3 shadow-sm">
-                  <div className="flex items-start justify-between gap-3">
-                    <label className="inline-flex items-center gap-2 text-sm font-medium">
+
+              <div className="space-y-3 md:hidden">
+                {results.map((line) => (
+                  <div key={line.id} className="rounded-2xl border bg-card p-3 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <label className="inline-flex items-center gap-2 text-sm font-medium">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(line.id)}
+                          onChange={() => toggleSelected(line.id)}
+                          aria-label={`Include ${line.extractedName}`}
+                        />
+                        {tr(language, "Include item", "包含此项")}
+                      </label>
+                      <div className="flex flex-wrap justify-end gap-2 text-[11px]">
+                        <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground">
+                          {line.confidence != null ? `${Math.round(line.confidence * 100)}% ${tr(language, "confidence", "置信度")}` : tr(language, "No confidence", "无置信度")}
+                        </span>
+                        {line.needsReview ? <span className="rounded-full bg-warning/15 px-2 py-1 text-warning">{tr(language, "Needs Review", "需要确认")}</span> : null}
+                        {line.lineStatus === "REJECTED" ? <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground">{tr(language, "Ignored", "已忽略")}</span> : null}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2">
+                      <div className="rounded-xl border bg-muted/20 px-3 py-2">
+                        <p className="text-sm font-semibold text-foreground">{language === "zh" ? line.displayNameZh || line.displayName || line.extractedName : line.displayName || line.extractedName}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{tr(language, "Original receipt text:", "小票原文：")} {line.rawName ?? line.rawLine ?? "N/A"}</p>
+                      </div>
+                      <label className="text-xs text-muted-foreground">{tr(language, "Item name", "食材名称")}</label>
                       <input
-                        type="checkbox"
-                        checked={selectedIds.includes(line.id)}
-                        onChange={() => toggleSelected(line.id)}
-                        aria-label={`Include ${line.extractedName}`}
+                        value={line.extractedName}
+                        onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedName: event.target.value }))}
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        disabled={!canReview}
                       />
-                      Include item
-                    </label>
-                    <div className="flex flex-wrap justify-end gap-2 text-[11px]">
-                      <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground">
-                        {line.confidence != null ? `${Math.round(line.confidence * 100)}% confidence` : "No confidence"}
-                      </span>
-                      {line.needsReview ? <span className="rounded-full bg-warning/15 px-2 py-1 text-warning">Needs Review</span> : null}
-                      {line.duplicateCandidates.length > 0 ? <span className="rounded-full bg-primary/10 px-2 py-1 text-primary">Possible duplicate</span> : null}
-                    </div>
-                  </div>
 
-                  <div className="mt-3 grid grid-cols-1 gap-2">
-                    <div className="rounded-xl border bg-muted/20 px-3 py-2">
-                      <p className="text-sm font-semibold text-foreground">{language === "zh" ? line.displayNameZh || line.displayName || line.extractedName : line.displayName || line.extractedName}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">Original: {line.rawName ?? line.rawLine ?? "N/A"}</p>
-                    </div>
-                    <label className="text-xs text-muted-foreground">Item name</label>
-                    <input
-                      value={line.extractedName}
-                      onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedName: event.target.value }))}
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      disabled={!canReview}
-                    />
-
-                    <div className="grid grid-cols-3 gap-2">
-                      <div>
-                        <label className="text-xs text-muted-foreground">Qty</label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={line.extractedQuantity ?? ""}
-                          onChange={(event) =>
-                            updateLine(line.id, (current) => ({
-                              ...current,
-                              extractedQuantity: event.target.value ? Number(event.target.value) : null
-                            }))
-                          }
-                          className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          disabled={!canReview}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-muted-foreground">Unit</label>
-                        <input
-                          value={line.extractedUnit ?? ""}
-                          onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedUnit: event.target.value || null }))}
-                          className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          disabled={!canReview}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-muted-foreground">Price</label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={line.extractedPrice ?? ""}
-                          onChange={(event) =>
-                            updateLine(line.id, (current) => ({
-                              ...current,
-                              extractedPrice: event.target.value ? Number(event.target.value) : null
-                            }))
-                          }
-                          className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          disabled={!canReview}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-                      <p>
-                        Suggested: {formatCategoryLabel(line.suggestedCategory)} in {formatCategoryLabel(line.suggestedStorageLocation)}
-                      </p>
-                      <p className="mt-1">Suggested expiration: {formatSuggestedDate(line.suggestedExpirationDate)}</p>
-                      <p className="mt-1">Normalization confidence: {Math.round((line.normalizationConfidence ?? line.confidence ?? 0) * 100)}%</p>
-                    </div>
-
-                    {line.duplicateCandidates.length > 0 ? (
-                      <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
-                        <p className="text-sm font-medium text-foreground">Possible duplicate found</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {line.duplicateCandidates[0]?.name} • {line.duplicateCandidates[0]?.quantity} {line.duplicateCandidates[0]?.unit} • {formatCategoryLabel(line.duplicateCandidates[0]?.storageLocation ?? "PANTRY")}
-                        </p>
-                        <div className="mt-2 flex gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={(line.mergeStrategy ?? line.defaultAction) === "MERGE" ? "default" : "outline"}
-                            onClick={() => setMergeChoice(line.id, "MERGE", line.duplicateCandidates[0]?.id ?? null)}
-                          >
-                            Merge into existing
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={(line.mergeStrategy ?? line.defaultAction) === "CREATE_NEW" ? "secondary" : "outline"}
-                            onClick={() => setMergeChoice(line.id, "CREATE_NEW", null)}
-                          >
-                            Keep separate
-                          </Button>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-xs text-muted-foreground">{tr(language, "Qty", "数量")}</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={line.extractedQuantity ?? ""}
+                            onChange={(event) =>
+                              updateLine(line.id, (current) => ({
+                                ...current,
+                                extractedQuantity: event.target.value ? Number(event.target.value) : null
+                              }))
+                            }
+                            className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                            disabled={!canReview}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground">{tr(language, "Unit", "单位")}</label>
+                          <input
+                            value={line.extractedUnit ?? ""}
+                            onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedUnit: event.target.value || null }))}
+                            className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                            disabled={!canReview}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground">{tr(language, "Price", "价格")}</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={line.extractedPrice ?? ""}
+                            onChange={(event) =>
+                              updateLine(line.id, (current) => ({
+                                ...current,
+                                extractedPrice: event.target.value ? Number(event.target.value) : null
+                              }))
+                            }
+                            className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                            disabled={!canReview}
+                          />
                         </div>
                       </div>
-                    ) : null}
 
-                    <div className="flex flex-wrap gap-2">
-                      <p className="text-xs font-medium">Status: {line.lineStatus}</p>
-                      <Button type="button" size="sm" variant="outline" onClick={() => saveCorrection(line)}>
-                        This is actually...
-                      </Button>
+                      <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                        <p>{tr(language, "Suggested:", "建议：")} {formatCategoryLabel(line.suggestedCategory)} • {formatCategoryLabel(line.suggestedStorageLocation)}</p>
+                        <p className="mt-1">{tr(language, "Suggested expiration:", "建议保质期：")} {formatSuggestedDate(line.suggestedExpirationDate)}</p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <p className="text-xs font-medium">{tr(language, "Status:", "状态：")} {line.lineStatus}</p>
+                        <Button type="button" size="sm" variant="outline" onClick={() => saveCorrection(line)}>
+                          {tr(language, "This is actually...", "实际上是...")}
+                        </Button>
+                      </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">Source: {line.rawLine ?? "N/A"}</p>
                   </div>
-                </div>
-              ))}
-            </div>
-            <div className="hidden overflow-x-auto rounded-lg border md:block">
-              <table className="w-full min-w-[880px] border-collapse">
-                <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-2">Include</th>
-                    <th className="px-3 py-2">Item Name</th>
-                    <th className="px-3 py-2">Quantity</th>
-                    <th className="px-3 py-2">Unit</th>
-                    <th className="px-3 py-2">Price</th>
-                    <th className="px-3 py-2">Confidence</th>
-                    <th className="px-3 py-2">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((line) => (
-                    <tr key={line.id} className="border-t align-top">
-                      <td className="px-3 py-2">
-                        <input type="checkbox" checked={selectedIds.includes(line.id)} onChange={() => toggleSelected(line.id)} />
-                      </td>
-                      <td className="px-3 py-2">
-                        <p className="mb-1 text-xs font-medium text-foreground">
-                          {language === "zh" ? line.displayNameZh || line.displayName || line.extractedName : line.displayName || line.extractedName}
-                        </p>
-                        <input
-                          value={line.extractedName}
-                          onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedName: event.target.value }))}
-                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          disabled={!canReview}
-                        />
-                        <p className="mt-1 text-xs text-muted-foreground">Source: {line.rawLine ?? "N/A"}</p>
-                        {line.needsReview ? <p className="mt-1 text-xs font-medium text-warning">Needs Review</p> : null}
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Suggested: {formatCategoryLabel(line.suggestedCategory)} • {formatCategoryLabel(line.suggestedStorageLocation)} • {formatSuggestedDate(line.suggestedExpirationDate)}
-                        </p>
-                        {line.duplicateCandidates.length > 0 ? (
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-medium text-primary">Possible duplicate: {line.duplicateCandidates[0]?.name}</span>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant={(line.mergeStrategy ?? line.defaultAction) === "MERGE" ? "default" : "outline"}
-                              onClick={() => setMergeChoice(line.id, "MERGE", line.duplicateCandidates[0]?.id ?? null)}
-                            >
-                              Merge
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant={(line.mergeStrategy ?? line.defaultAction) === "CREATE_NEW" ? "secondary" : "outline"}
-                              onClick={() => setMergeChoice(line.id, "CREATE_NEW", null)}
-                            >
-                              Separate
-                            </Button>
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={line.extractedQuantity ?? ""}
-                          onChange={(event) =>
-                            updateLine(line.id, (current) => ({
-                              ...current,
-                              extractedQuantity: event.target.value ? Number(event.target.value) : null
-                            }))
-                          }
-                          className="h-9 w-24 rounded-md border border-input bg-background px-3 text-sm"
-                          disabled={!canReview}
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        <input
-                          value={line.extractedUnit ?? ""}
-                          onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedUnit: event.target.value || null }))}
-                          className="h-9 w-24 rounded-md border border-input bg-background px-3 text-sm"
-                          disabled={!canReview}
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={line.extractedPrice ?? ""}
-                          onChange={(event) =>
-                            updateLine(line.id, (current) => ({
-                              ...current,
-                              extractedPrice: event.target.value ? Number(event.target.value) : null
-                            }))
-                          }
-                          className="h-9 w-24 rounded-md border border-input bg-background px-3 text-sm"
-                          disabled={!canReview}
-                        />
-                      </td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">
-                        {line.confidence != null ? line.confidence.toFixed(2) : "N/A"}
-                        {line.needsReview ? <span className="mt-1 block font-medium text-warning">Needs Review</span> : null}
-                      </td>
-                      <td className="px-3 py-2 text-xs font-medium">{line.lineStatus}</td>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-lg border md:block">
+                <table className="w-full min-w-[880px] border-collapse">
+                  <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2">{tr(language, "Include", "包含")}</th>
+                      <th className="px-3 py-2">{tr(language, "Item Name", "食材名称")}</th>
+                      <th className="px-3 py-2">{tr(language, "Quantity", "数量")}</th>
+                      <th className="px-3 py-2">{tr(language, "Unit", "单位")}</th>
+                      <th className="px-3 py-2">{tr(language, "Price", "价格")}</th>
+                      <th className="px-3 py-2">{tr(language, "Confidence", "置信度")}</th>
+                      <th className="px-3 py-2">{tr(language, "Status", "状态")}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {results.map((line) => (
+                      <tr key={line.id} className="border-t align-top">
+                        <td className="px-3 py-2">
+                          <input type="checkbox" checked={selectedIds.includes(line.id)} onChange={() => toggleSelected(line.id)} />
+                        </td>
+                        <td className="px-3 py-2">
+                          <p className="mb-1 text-xs font-medium text-foreground">{language === "zh" ? line.displayNameZh || line.displayName || line.extractedName : line.displayName || line.extractedName}</p>
+                          <input
+                            value={line.extractedName}
+                            onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedName: event.target.value }))}
+                            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                            disabled={!canReview}
+                          />
+                          <p className="mt-1 text-xs text-muted-foreground">{tr(language, "Original receipt text:", "小票原文：")} {line.rawLine ?? "N/A"}</p>
+                        </td>
+                        <td className="px-3 py-2">
+                          <input type="number" min="0" step="0.01" value={line.extractedQuantity ?? ""} onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedQuantity: event.target.value ? Number(event.target.value) : null }))} className="h-9 w-24 rounded-md border border-input bg-background px-3 text-sm" disabled={!canReview} />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input value={line.extractedUnit ?? ""} onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedUnit: event.target.value || null }))} className="h-9 w-24 rounded-md border border-input bg-background px-3 text-sm" disabled={!canReview} />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input type="number" min="0" step="0.01" value={line.extractedPrice ?? ""} onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedPrice: event.target.value ? Number(event.target.value) : null }))} className="h-9 w-24 rounded-md border border-input bg-background px-3 text-sm" disabled={!canReview} />
+                        </td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">{line.confidence != null ? line.confidence.toFixed(2) : "N/A"}</td>
+                        <td className="px-3 py-2 text-xs font-medium">{line.lineStatus}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </>
           ) : null}
+
           {results.length > 0 && canReview ? (
-            <div className="sticky bottom-[max(env(safe-area-inset-bottom),0px)] flex flex-col gap-2 rounded-xl border bg-card/95 p-2 pt-2 backdrop-blur md:static md:border-0 md:bg-transparent md:p-0 md:flex-row">
-              <Button className="w-full md:w-auto" variant="secondary" type="button" onClick={() => setSelectedIds(results.map((line) => line.id))}>
-                Select All
+            <div className="sticky bottom-[max(env(safe-area-inset-bottom),0px)] z-20 flex flex-col gap-2 rounded-xl border bg-card/95 p-2 pt-2 backdrop-blur md:static md:border-0 md:bg-transparent md:p-0 md:flex-row">
+              <Button className="w-full md:w-auto" variant="secondary" type="button" onClick={() => setSelectedIds(results.filter((line) => line.lineStatus !== "REJECTED").map((line) => line.id))}>
+                {tr(language, "Select All", "全选")}
               </Button>
               <Button className="w-full md:w-auto" variant="outline" type="button" onClick={() => setSelectedIds([])}>
-                Clear Selection
+                {tr(language, "Clear Selection", "清空选择")}
               </Button>
-              <Button
-                className={hasAddedToInventory ? "w-full bg-success text-success-foreground md:w-auto" : "w-full md:w-auto"}
-                type="button"
-                onClick={addSelectedToInventory}
-                disabled={disableAddButton}
-                aria-label="Add selected items to inventory"
-              >
-                {hasAddedToInventory ? "Completed" : isSubmittingSelection ? "Adding..." : "Add Selected to Inventory"}
+              <Button className={hasAddedToInventory ? "w-full bg-success text-success-foreground md:w-auto" : "w-full md:w-auto"} type="button" onClick={addSelectedToInventory} disabled={disableAddButton} aria-label="Add selected items to inventory">
+                {hasAddedToInventory ? tr(language, "Completed", "已完成") : isSubmittingSelection ? tr(language, "Adding...", "添加中...") : tr(language, "Add Selected to Inventory", "将所选添加到库存")}
               </Button>
               {hasAddedToInventory ? (
                 <Button className="w-full md:w-auto" type="button" variant="outline" asChild>
-                  <Link href="/inventory" aria-label="View inventory">View Inventory</Link>
+                  <Link href="/inventory" aria-label={tr(language, "View inventory", "查看库存")}>{tr(language, "View Inventory", "查看库存")}</Link>
                 </Button>
               ) : null}
             </div>

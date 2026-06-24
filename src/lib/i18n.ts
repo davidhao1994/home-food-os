@@ -14,6 +14,7 @@ type CopyDictionary = {
   navReceipts: string;
   navAssistant: string;
   navProfile: string;
+  navScan: string;
   dashboardTitle: string;
   dashboardSubtitle: string;
   addFood: string;
@@ -36,6 +37,8 @@ type CopyDictionary = {
   viewAllRecipes: string;
   viewNutrition: string;
   openSection: string;
+  recipesWithMatch: string;
+  kcalAvailable: string;
 };
 
 const copy: Record<AppLanguage, CopyDictionary> = {
@@ -48,6 +51,7 @@ const copy: Record<AppLanguage, CopyDictionary> = {
     navReceipts: "Receipts",
     navAssistant: "AI/Cooking",
     navProfile: "Profile",
+    navScan: "Scan",
     dashboardTitle: "Home Food OS",
     dashboardSubtitle: "Track inventory, expiring items, meals, and nutrition at a glance.",
     addFood: "Add Food",
@@ -69,7 +73,9 @@ const copy: Record<AppLanguage, CopyDictionary> = {
     viewInventory: "View Inventory",
     viewAllRecipes: "View Recipes",
     viewNutrition: "View Nutrition",
-    openSection: "Open"
+    openSection: "Open",
+    recipesWithMatch: "Recipes with at least one ingredient match",
+    kcalAvailable: "kcal available"
   },
   zh: {
     navDashboard: "总览",
@@ -80,6 +86,7 @@ const copy: Record<AppLanguage, CopyDictionary> = {
     navReceipts: "小票",
     navAssistant: "AI烹饪",
     navProfile: "我的",
+    navScan: "扫描",
     dashboardTitle: "家庭食物系统",
     dashboardSubtitle: "一目了然查看库存、临期食材、做饭建议与营养情况。",
     addFood: "添加食材",
@@ -101,7 +108,9 @@ const copy: Record<AppLanguage, CopyDictionary> = {
     viewInventory: "查看库存",
     viewAllRecipes: "查看菜谱",
     viewNutrition: "查看营养",
-    openSection: "打开"
+    openSection: "打开",
+    recipesWithMatch: "至少匹配一种食材的菜谱",
+    kcalAvailable: "可用千卡"
   }
 };
 

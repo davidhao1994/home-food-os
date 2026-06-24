@@ -53,37 +53,38 @@ export function DashboardOverview({
   recommendations
 }: DashboardOverviewProps) {
   const language = useUiStore((state) => state.language);
+  const tr = (en: string, zh: string) => (language === "zh" ? zh : en);
   const topRecommendation = recommendations[0] ?? null;
   const todayActions: Array<{ id: string; emoji: string; title: string; detail: string; href: Route; icon: typeof AlertTriangle }> = [
     {
       id: "expiring",
       emoji: "🥚",
-      title: expiringSoon > 0 ? `Expiring Soon: ${expiringSoon} item${expiringSoon === 1 ? "" : "s"}` : "Expiring Soon: all clear",
-      detail: expiringSoon > 0 ? "Use these first to avoid waste." : "You are clear on spoilage risk today.",
+      title: expiringSoon > 0 ? tr(`Expiring Soon: ${expiringSoon} item${expiringSoon === 1 ? "" : "s"}`, `快过期了：${expiringSoon}项`) : tr("Expiring Soon: all clear", "快过期了：今天没有"),
+      detail: expiringSoon > 0 ? tr("Use these first to avoid waste.", "优先吃这些，减少浪费。") : tr("You are clear on spoilage risk today.", "今天临期风险较低。"),
       href: "/inventory?filter=expiring" as Route,
       icon: AlertTriangle
     },
     {
       id: "shopping",
       emoji: "🛒",
-      title: shoppingCount > 0 ? `Buy This Week: ${shoppingCount} item${shoppingCount === 1 ? "" : "s"}` : "Buy This Week: no gaps",
-      detail: shoppingCount > 0 ? "Complete the list before your next meal prep." : "No missing essentials are tracked right now.",
+      title: shoppingCount > 0 ? tr(`Buy This Week: ${shoppingCount} item${shoppingCount === 1 ? "" : "s"}`, `需要买：${shoppingCount}项`) : tr("Buy This Week: no gaps", "需要买：目前无需补货"),
+      detail: shoppingCount > 0 ? tr("Complete the list before your next meal prep.", "下次做饭前先补齐。") : tr("No missing essentials are tracked right now.", "暂未发现缺少的必需品。"),
       href: "/shopping",
       icon: ShoppingCart
     },
     {
       id: "recipes",
       emoji: "🍜",
-      title: topRecommendation ? `Cook Tonight: ${topRecommendation.name}` : "Cook Tonight: no strong match yet",
-      detail: topRecommendation ? `${topRecommendation.matchScore}% match with your current inventory.` : "Add or scan inventory to unlock better matches.",
+      title: topRecommendation ? tr(`Cook Tonight: ${topRecommendation.name}`, `今晚可以做：${topRecommendation.name}`) : tr("Cook Tonight: no strong match yet", "今晚可以做：暂无高匹配"),
+      detail: topRecommendation ? tr(`${topRecommendation.matchScore}% match with your current inventory.`, `当前库存匹配度 ${topRecommendation.matchScore}%`) : tr("Add or scan inventory to unlock better matches.", "补充库存后推荐会更精准。"),
       href: "/recipes",
       icon: ChefHat
     },
     {
       id: "nutrition",
       emoji: "🥗",
-      title: `Nutrition Action: ${Math.round(nutritionSummary.totalProtein)}g protein ready`,
-      detail: `${Math.round(nutritionSummary.totalCalories)} kcal available for planning today.`,
+      title: tr(`Nutrition: ${Math.round(nutritionSummary.totalProtein)}g protein ready`, `营养：已准备 ${Math.round(nutritionSummary.totalProtein)}g 蛋白质`),
+      detail: tr(`${Math.round(nutritionSummary.totalCalories)} kcal available for planning today.`, `可用热量约 ${Math.round(nutritionSummary.totalCalories)} kcal。`),
       href: "/nutrition",
       icon: BarChart3
     }
@@ -103,15 +104,15 @@ export function DashboardOverview({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="max-w-2xl">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">Today</p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight md:text-3xl">What should I do today?</h2>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight md:text-3xl">{tr("What should I do today?", "今天先做什么？")}</h2>
                 <p className="mt-2 text-sm text-muted-foreground md:text-base">
-                  Start with high-priority actions: prevent spoilage, close shopping gaps, and pick tonight&apos;s best recipe.
+                  {tr("Start with high-priority actions: prevent spoilage, close shopping gaps, and pick tonight's best recipe.", "先做最重要的事：处理临期、补齐购物、决定今晚吃什么。")}
                 </p>
               </div>
               <div className="rounded-2xl border border-primary/20 bg-background/70 px-4 py-3 text-right shadow-sm">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Best tonight</p>
-                <p className="mt-1 text-lg font-semibold">{topRecommendation?.name ?? "No strong match yet"}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{topRecommendation ? `${topRecommendation.matchScore}% match` : "Add more inventory to unlock suggestions."}</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{tr("Best tonight", "今晚推荐")}</p>
+                <p className="mt-1 text-lg font-semibold">{topRecommendation?.name ?? tr("No strong match yet", "暂无高匹配")}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{topRecommendation ? `${topRecommendation.matchScore}% ${tr("match", "匹配")}` : tr("Add more inventory to unlock suggestions.", "补充库存后可获得更好推荐。")}</p>
               </div>
             </div>
 
@@ -190,14 +191,14 @@ export function DashboardOverview({
           title={t(language, "recommendedRecipes")}
           value={recommendedCount}
           icon={<Sparkles className="h-5 w-5" />}
-          helper="Recipes with at least one ingredient match"
+          helper={t(language, "recipesWithMatch")}
           href="/recipes"
         />
         <StatsCard
           title={t(language, "nutritionSummary")}
           value={`${Math.round(nutritionSummary.totalProtein)} g`}
           icon={<BarChart3 className="h-5 w-5" />}
-          helper={`${Math.round(nutritionSummary.totalCalories)} kcal available`}
+          helper={`${Math.round(nutritionSummary.totalCalories)} ${t(language, "kcalAvailable")}`}
           href="/nutrition"
         />
       </div>
@@ -272,11 +273,11 @@ export function DashboardOverview({
               >
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-medium">{recipe.name}</p>
-                  <span className="rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary">{recipe.matchScore}% match</span>
+                  <span className="rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary">{recipe.matchScore}% {tr("match", "匹配")}</span>
                 </div>
                 <p className="mt-1 text-muted-foreground">{recipe.reason}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {recipe.missingIngredients.length > 0 ? `Missing: ${recipe.missingIngredients.join(", ")}` : "Everything is already on hand."}
+                  {recipe.missingIngredients.length > 0 ? `${tr("Missing", "缺少")}: ${recipe.missingIngredients.join(", ")}` : tr("Everything is already on hand.", "食材已基本齐全。")}
                 </p>
               </Link>
             ))}

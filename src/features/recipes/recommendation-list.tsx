@@ -15,6 +15,7 @@ type RecipePreferences = {
 type Props = {
   recommendations: RecipeRecommendation[];
   preferences: RecipePreferences;
+  language: "en" | "zh";
   onToggleFavorite: (recipeId: string) => void;
   onHide: (recipeId: string) => void;
   onNotInterested: (recipeId: string) => void;
@@ -39,7 +40,7 @@ function formatProteinType(value: RecipeRecommendation["proteinType"]) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-export function RecommendationList({ recommendations, preferences, onToggleFavorite, onHide, onNotInterested, onRefresh, onMarkShown, isLoading = false }: Props) {
+export function RecommendationList({ recommendations, preferences, language, onToggleFavorite, onHide, onNotInterested, onRefresh, onMarkShown, isLoading = false }: Props) {
   const [pendingRecipeId, setPendingRecipeId] = useState<string | null>(null);
   const [status, setStatus] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const visibleRecommendations = useMemo(
@@ -94,17 +95,19 @@ export function RecommendationList({ recommendations, preferences, onToggleFavor
     }
   };
 
+  const tr = (en: string, zh: string) => (language === "zh" ? zh : en);
+
   if (visibleRecommendations.length === 0 && !isLoading) {
-    return <p className="text-sm text-muted-foreground">No recipes available yet. Seed or add recipes to get recommendations.</p>;
+    return <p className="text-sm text-muted-foreground">{tr("No recipes available yet. Add or import recipes to get recommendations.", "还没有可推荐的菜谱。先添加或导入菜谱吧。")}</p>;
   }
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2 rounded-2xl border bg-card p-3">
-        <p className="text-xs text-muted-foreground">Recommendations are weighted by inventory, expiring items, preferences, and diversity rotation.</p>
+        <p className="text-xs text-muted-foreground">{tr("Recommendations are based on what you have, what expires soon, and your preferences.", "推荐依据你现有食材、临期食材和你的偏好。")}</p>
         <Button type="button" variant="outline" size="sm" onClick={onRefresh} className="shrink-0">
           <Shuffle className="mr-1.5 h-3.5 w-3.5" />
-          Refresh Recommendations
+          {tr("Refresh Recommendations", "换一批推荐")}
         </Button>
       </div>
 
@@ -138,12 +141,12 @@ export function RecommendationList({ recommendations, preferences, onToggleFavor
             <div>
               <h3 className="font-semibold">{recipe.name}</h3>
               <p className="mt-1 text-xs text-muted-foreground">
-                Cuisine: {recipe.cuisine ?? "Unknown"} • {formatMealType(recipe.mealType)} • {recipe.cookingTime} min
+                {tr("Cuisine", "菜系")}: {recipe.cuisine ?? tr("Unknown", "未知")} • {formatMealType(recipe.mealType)} • {recipe.cookingTime} {tr("min", "分钟")}
               </p>
             </div>
             <div className="flex items-center gap-2">
               {preferences.favorites.includes(recipe.recipeId) ? <Heart className="h-4 w-4 fill-current text-danger" /> : null}
-              <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">Score: {recipe.matchScore}%</span>
+              <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">{tr("Match", "匹配度")}: {recipe.matchScore}%</span>
             </div>
           </div>
 
@@ -156,11 +159,11 @@ export function RecommendationList({ recommendations, preferences, onToggleFavor
             ))}
           </div>
 
-          <p className="text-sm text-foreground/90">{recipe.reason}</p>
+          <p className="text-sm text-foreground/90">{tr("Why this:", "为什么推荐：")} {recipe.reason}</p>
 
           <div className="mt-3 space-y-3 rounded-xl border bg-muted/20 p-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Uses</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr("Uses", "已有食材")}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {recipe.matchedIngredients.length > 0 ? (
                   recipe.matchedIngredients.map((ingredient) => (
@@ -169,13 +172,13 @@ export function RecommendationList({ recommendations, preferences, onToggleFavor
                     </span>
                   ))
                 ) : (
-                  <span className="text-xs text-muted-foreground">No matched ingredients yet.</span>
+                  <span className="text-xs text-muted-foreground">{tr("No matched ingredients yet.", "还没有匹配食材。")}</span>
                 )}
               </div>
             </div>
 
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Missing</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr("Missing", "缺少")}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {recipe.missingIngredients.length > 0 ? (
                   recipe.missingIngredients.map((ingredient) => (
@@ -184,36 +187,30 @@ export function RecommendationList({ recommendations, preferences, onToggleFavor
                     </span>
                   ))
                 ) : (
-                  <span className="rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success">✓ No missing ingredients</span>
+                  <span className="rounded-full bg-success/15 px-2.5 py-1 text-xs font-medium text-success">✓ {tr("No missing ingredients", "不缺食材")}</span>
                 )}
               </div>
             </div>
           </div>
 
           <p className="mt-1 text-xs text-muted-foreground">
-            Calories: {recipe.estimatedCalories ?? "N/A"} • Protein: {recipe.estimatedProtein ?? "N/A"} g • Carbs: {recipe.estimatedCarbs ?? "N/A"} g • Fat: {recipe.estimatedFat ?? "N/A"} g • Cook time: {recipe.cookingTime} min
+            {tr("Cook Time", "烹饪时间")}: {recipe.cookingTime} {tr("min", "分钟")} • {tr("Protein", "蛋白质")}: {recipe.estimatedProtein ?? "N/A"} g • {tr("Calories", "热量")}: {recipe.estimatedCalories ?? "N/A"}
           </p>
 
-          {recipe.scoreBreakdown ? (
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Score mix: inventory {Math.round(recipe.scoreBreakdown.inventoryMatch * 100)}% • expiring {Math.round(recipe.scoreBreakdown.expiringIngredientMatch * 100)}% • preference {Math.round(recipe.scoreBreakdown.userPreference * 100)}% • variety {Math.round(recipe.scoreBreakdown.varietyScore * 100)}%
-            </p>
-          ) : null}
-
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-muted-foreground">Add missing ingredients to your shopping list in one tap.</p>
+            <p className="text-xs text-muted-foreground">{tr("One tap to add missing ingredients to shopping.", "一键把缺少食材加入购物清单。")}</p>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => onToggleFavorite(recipe.recipeId)}>
                 <Heart className="mr-1.5 h-3.5 w-3.5" />
-                {preferences.favorites.includes(recipe.recipeId) ? "Unfavorite" : "Favorite"}
+                {preferences.favorites.includes(recipe.recipeId) ? tr("Unfavorite", "取消收藏") : tr("Favorite", "收藏")}
               </Button>
               <Button type="button" variant="outline" size="sm" onClick={() => onHide(recipe.recipeId)}>
                 <HeartOff className="mr-1.5 h-3.5 w-3.5" />
-                Hide
+                {tr("Hide", "隐藏")}
               </Button>
               <Button type="button" variant="outline" size="sm" onClick={() => onNotInterested(recipe.recipeId)}>
                 <ThumbsDown className="mr-1.5 h-3.5 w-3.5" />
-                Not Interested
+                {tr("Not Interested", "不感兴趣")}
               </Button>
               <Button
                 type="button"
@@ -223,10 +220,10 @@ export function RecommendationList({ recommendations, preferences, onToggleFavor
                 disabled={pendingRecipeId === recipe.recipeId || recipe.missingIngredientsDetailed.length === 0}
               >
                 {recipe.missingIngredientsDetailed.length === 0
-                  ? "Ready to cook"
+                  ? tr("Ready to cook", "可以开做")
                   : pendingRecipeId === recipe.recipeId
-                    ? "Adding ingredients..."
-                    : "Add Missing Ingredients"}
+                    ? tr("Adding ingredients...", "添加中...")
+                    : tr("Add Missing Ingredients", "添加缺少食材")}
               </Button>
             </div>
           </div>

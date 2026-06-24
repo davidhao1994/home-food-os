@@ -115,6 +115,7 @@ export function InventoryView({ initialItems }: Props) {
   const [sortBy, setSortBy] = useState<"name" | "expiration">("expiration");
   const expiringFilterOn = searchParams.get("filter") === "expiring";
   const { inventoryView, search, setInventoryView, setSearch, language } = useUiStore();
+  const tr = (en: string, zh: string) => (language === "zh" ? zh : en);
   const categoryDefaults = getFoodCategoryDefaults(form.category);
   const suggestedExpirationDate = formatDateInput(getSuggestedExpirationDate(form.category, parseDateInput(form.purchaseDate)));
 
@@ -288,9 +289,9 @@ export function InventoryView({ initialItems }: Props) {
       {expiringFilterOn ? (
         <Card>
           <CardContent className="flex flex-col gap-3 py-4 text-sm md:flex-row md:items-center md:justify-between">
-            <p className="font-medium">Showing expiring items only.</p>
+            <p className="font-medium">{tr("Showing expiring items only.", "仅显示快过期食材。")}</p>
             <Button asChild type="button" variant="outline" size="sm">
-              <Link href="/inventory">Clear filter</Link>
+              <Link href="/inventory">{tr("Clear filter", "清除筛选")}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -299,14 +300,14 @@ export function InventoryView({ initialItems }: Props) {
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
-          <Input className="pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search" />
+          <Input className="pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={tr("Search food", "搜索食材")} />
         </div>
         <select
           className="h-11 rounded-md border border-input bg-background px-3"
           value={categoryFilter}
           onChange={(event) => setCategoryFilter(event.target.value)}
         >
-          <option value="ALL">All categories</option>
+          <option value="ALL">{tr("All categories", "全部分类")}</option>
           {categories.map((category) => (
             <option key={category} value={category}>
               {category.replace("_", " ")}
@@ -318,7 +319,7 @@ export function InventoryView({ initialItems }: Props) {
           value={locationFilter}
           onChange={(event) => setLocationFilter(event.target.value)}
         >
-          <option value="ALL">All locations</option>
+          <option value="ALL">{tr("All locations", "全部位置")}</option>
           {locations.map((location) => (
             <option key={location} value={location}>
               {location.replace("_", " ")}
@@ -330,18 +331,18 @@ export function InventoryView({ initialItems }: Props) {
           value={sortBy}
           onChange={(event) => setSortBy(event.target.value as "name" | "expiration")}
         >
-          <option value="expiration">Sort by expiration</option>
-          <option value="name">Sort by name</option>
+          <option value="expiration">{tr("Sort by expiration", "按过期时间")}</option>
+          <option value="name">{tr("Sort by name", "按名称")}</option>
         </select>
         <Button variant="secondary" onClick={() => setInventoryView(inventoryView === "cards" ? "table" : "cards")}>
-          {inventoryView === "cards" ? "Table View" : "Card View"}
+          {inventoryView === "cards" ? tr("Table View", "表格视图") : tr("Card View", "卡片视图")}
         </Button>
-        <Button onClick={openCreateEditor}>+ Add Ingredient</Button>
+        <Button onClick={openCreateEditor}>+ {tr("Add Ingredient", "添加食材")}</Button>
       </div>
 
       {filtered.length === 0 ? (
         <Card>
-          <CardContent className="py-8 text-sm text-muted-foreground">No inventory items found.</CardContent>
+          <CardContent className="py-8 text-sm text-muted-foreground">{tr("No inventory items found.", "未找到库存食材。")}</CardContent>
         </Card>
       ) : null}
 
@@ -355,19 +356,15 @@ export function InventoryView({ initialItems }: Props) {
                 <CardHeader>
                   <CardTitle className="text-lg">{readableNamesById.get(item.id)?.primaryName || item.name}</CardTitle>
                   {readableNamesById.get(item.id)?.rawName ? (
-                    <p className="text-xs text-muted-foreground">({readableNamesById.get(item.id)?.rawName})</p>
+                    <p className="text-xs text-muted-foreground">{tr("Receipt raw text:", "小票原文：")} {readableNamesById.get(item.id)?.rawName}</p>
                   ) : null}
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
-                  <p>
-                    {item.quantity} {item.unit}
-                  </p>
-                  <p className="text-muted-foreground">Brand: {item.brand || "-"}</p>
-                  <p className="text-muted-foreground">Barcode: {item.barcode || "-"}</p>
-                  <p className="text-muted-foreground">Purchased: {item.purchaseDate ? new Date(item.purchaseDate).toLocaleDateString() : "-"}</p>
-                  <p className="text-muted-foreground">{item.storageLocation.replace("_", " ")}</p>
+                  <p className="font-medium text-foreground">{formatCategoryLabel(item.category)} · {item.quantity} {item.unit}</p>
+                  <p className="text-muted-foreground">{tr("Storage", "位置")}: {formatCategoryLabel(item.storageLocation)} · {tr("Source", "来源")}: {item.notes?.includes("OCR_RAW:") ? tr("receipt", "小票") : tr("manual", "手动")}</p>
+                  <p className="text-muted-foreground">{tr("Purchased", "购买日期")}: {item.purchaseDate ? new Date(item.purchaseDate).toLocaleDateString() : "-"}</p>
                   {item.quantity <= item.lowStockThreshold ? (
-                    <Badge variant="warning" className="w-fit">Low stock</Badge>
+                    <Badge variant="warning" className="w-fit">{tr("Low stock", "库存偏低")}</Badge>
                   ) : null}
                   <Badge
                     variant={bucket === "expired" ? "danger" : bucket === "safe" ? "success" : "warning"}
@@ -377,13 +374,13 @@ export function InventoryView({ initialItems }: Props) {
                   </Badge>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Button className="flex-1 md:flex-none" variant="secondary" onClick={() => consumeItem(item.id, 1)}>
-                      Consume 1
+                      {tr("Consume 1", "消耗 1")}
                     </Button>
                     <Button className="flex-1 md:flex-none" variant="secondary" onClick={() => startEdit(item)}>
-                      Edit
+                      {tr("Edit", "编辑")}
                     </Button>
                     <Button className="flex-1 md:flex-none" variant="ghost" onClick={() => removeItem(item.id)}>
-                      Delete
+                      {tr("Delete", "删除")}
                     </Button>
                   </div>
                 </CardContent>
@@ -398,13 +395,13 @@ export function InventoryView({ initialItems }: Props) {
               <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="p-3">Name</th>
-                  <th className="p-3">Quantity</th>
-                  <th className="p-3">Category</th>
-                  <th className="p-3">Brand</th>
-                  <th className="p-3">Location</th>
-                  <th className="p-3">Purchased</th>
-                  <th className="p-3">Expires</th>
-                  <th className="p-3">Actions</th>
+                  <th className="p-3">{tr("Quantity", "数量")}</th>
+                  <th className="p-3">{tr("Category", "分类")}</th>
+                  <th className="p-3">{tr("Brand", "品牌")}</th>
+                  <th className="p-3">{tr("Location", "位置")}</th>
+                  <th className="p-3">{tr("Purchased", "购买日期")}</th>
+                  <th className="p-3">{tr("Expires", "过期日期")}</th>
+                  <th className="p-3">{tr("Actions", "操作")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -427,13 +424,13 @@ export function InventoryView({ initialItems }: Props) {
                     <td className="p-3">
                       <div className="flex flex-wrap gap-2">
                         <Button variant="secondary" size="sm" onClick={() => consumeItem(item.id, 1)}>
-                          Consume 1
+                          {tr("Consume 1", "消耗 1")}
                         </Button>
                         <Button variant="secondary" size="sm" onClick={() => startEdit(item)}>
-                          Edit
+                          {tr("Edit", "编辑")}
                         </Button>
                         <Button variant="ghost" size="sm" onClick={() => removeItem(item.id)}>
-                          Delete
+                          {tr("Delete", "删除")}
                         </Button>
                       </div>
                     </td>
@@ -452,16 +449,16 @@ export function InventoryView({ initialItems }: Props) {
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Food Inventory</p>
-                <h2 className="mt-1 text-xl font-semibold">{editingId ? "Edit Ingredient" : "Add Ingredient"}</h2>
+                <h2 className="mt-1 text-xl font-semibold">{editingId ? tr("Edit Ingredient", "编辑食材") : tr("Add Ingredient", "添加食材")}</h2>
               </div>
-              <Button type="button" variant="ghost" size="sm" onClick={closeEditor}>Close</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={closeEditor}>{tr("Close", "关闭")}</Button>
             </div>
 
             <form onSubmit={saveItem} className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <Input
                 value={form.name}
                 onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                placeholder="Ingredient name"
+                placeholder={tr("Ingredient name", "食材名称")}
                 required
               />
               <Input
@@ -475,17 +472,17 @@ export function InventoryView({ initialItems }: Props) {
               <Input
                 value={form.brand}
                 onChange={(event) => setForm((current) => ({ ...current, brand: event.target.value }))}
-                placeholder="Brand"
+                placeholder={tr("Brand", "品牌")}
               />
               <Input
                 value={form.barcode}
                 onChange={(event) => setForm((current) => ({ ...current, barcode: event.target.value }))}
-                placeholder="Barcode"
+                placeholder={tr("Barcode", "条码")}
               />
               <Input
                 value={form.unit}
                 onChange={(event) => setForm((current) => ({ ...current, unit: event.target.value }))}
-                placeholder="Unit"
+                placeholder={tr("Unit", "单位")}
                 required
               />
               <Input
@@ -494,7 +491,7 @@ export function InventoryView({ initialItems }: Props) {
                 type="number"
                 step="0.01"
                 min="0"
-                placeholder="Low-stock threshold"
+                placeholder={tr("Low-stock threshold", "低库存阈值")}
                 required
               />
               <Input
@@ -503,7 +500,7 @@ export function InventoryView({ initialItems }: Props) {
                 type="number"
                 step="0.01"
                 min="0"
-                placeholder="Consumption/day"
+                placeholder={tr("Consumption/day", "每日消耗")}
               />
               <Input
                 value={form.unitPrice}
@@ -511,7 +508,7 @@ export function InventoryView({ initialItems }: Props) {
                 type="number"
                 step="0.01"
                 min="0"
-                placeholder="Unit price"
+                placeholder={tr("Unit price", "单价")}
               />
               <select
                 value={form.category}
@@ -548,28 +545,29 @@ export function InventoryView({ initialItems }: Props) {
                 onChange={(event) => setForm((current) => ({ ...current, expirationDate: event.target.value }))}
               />
               <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 px-3 py-3 text-sm text-muted-foreground md:col-span-2">
-                <p className="font-medium text-foreground">Smart defaults for {formatCategoryLabel(form.category)}</p>
+                <p className="font-medium text-foreground">{tr("Smart defaults for", "智能默认值：")} {formatCategoryLabel(form.category)}</p>
                 <p className="mt-1">
-                  Store in {formatCategoryLabel(categoryDefaults.storageLocation)} and use within {categoryDefaults.expirationDays ?? "a flexible"} day{categoryDefaults.expirationDays === 1 ? "" : "s"}.
+                  {tr("Store in", "建议存放于")} {formatCategoryLabel(categoryDefaults.storageLocation)}，{tr("use within", "建议在")}
+                  {categoryDefaults.expirationDays ?? tr("a flexible period", "灵活时段")} {tr("day(s)", "天内")}。
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Button type="button" size="sm" variant="secondary" onClick={() => setForm((current) => ({ ...current, expirationDate: suggestedExpirationDate }))}>
-                    Apply suggested expiration
+                    {tr("Apply suggested expiration", "应用建议保质期")}
                   </Button>
-                  <span className="self-center text-xs text-muted-foreground">Suggested date: {suggestedExpirationDate || "No date"}</span>
+                  <span className="self-center text-xs text-muted-foreground">{tr("Suggested date:", "建议日期：")} {suggestedExpirationDate || tr("No date", "无")}</span>
                 </div>
               </div>
               <div className="md:col-span-2">
                 <Input
                   value={form.notes}
                   onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-                  placeholder="Notes"
+                  placeholder={tr("Notes", "备注")}
                 />
               </div>
               <div className="flex flex-col gap-2 md:col-span-2 md:flex-row">
-                <Button className="w-full md:w-auto" type="submit">{editingId ? "Save Changes" : "Add to Inventory"}</Button>
+                <Button className="w-full md:w-auto" type="submit">{editingId ? tr("Save Changes", "保存修改") : tr("Add to Inventory", "添加到库存")}</Button>
                 <Button className="w-full md:w-auto" type="button" variant="secondary" onClick={closeEditor}>
-                  Cancel
+                  {tr("Cancel", "取消")}
                 </Button>
               </div>
             </form>

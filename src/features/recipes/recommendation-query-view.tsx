@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { RecommendationList } from "@/features/recipes/recommendation-list";
+import { useUiStore } from "@/store/ui-store";
 import type { RecipeRecommendation } from "@/types/domain";
 
 type Props = {
@@ -42,6 +43,7 @@ const RECIPE_PREFS_STORAGE_KEY = "home-food-os-recipe-preferences-v1";
 const LOCAL_RECIPE_STORAGE_KEY = "home-food-os-local-recipes-v1";
 
 export function RecommendationQueryView({ initialRecommendations }: Props) {
+  const language = useUiStore((state) => state.language);
   const [cuisine, setCuisine] = useState("ALL");
   const [mealType, setMealType] = useState("ALL");
   const [proteinType, setProteinType] = useState("ALL");
@@ -55,6 +57,7 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
   const [newRecipeSource, setNewRecipeSource] = useState<LocalRecipe["source"]>("USER");
   const [recipeImportUrl, setRecipeImportUrl] = useState("");
   const [recipePasteText, setRecipePasteText] = useState("");
+  const tr = (en: string, zh: string) => (language === "zh" ? zh : en);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -289,6 +292,32 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
     setRefreshSeed(Date.now());
   };
 
+  const applyIntent = (intent: "tonight" | "quick" | "expiring" | "high-protein" | "light" | "home-style") => {
+    if (intent === "quick") {
+      setMaxCookTime("20");
+      setDietaryTag("quick");
+    }
+
+    if (intent === "high-protein") {
+      setDietaryTag("high-protein");
+      setProteinTarget("30");
+    }
+
+    if (intent === "light") {
+      setDietaryTag("high-fiber");
+      setProteinTarget("");
+    }
+
+    if (intent === "home-style") {
+      setCuisine(language === "zh" ? "Chinese" : "ALL");
+    }
+
+    if (intent === "tonight" || intent === "expiring") {
+      setMealType("dinner");
+      setRefreshSeed(Date.now());
+    }
+  };
+
   const createLocalRecipe = (source: LocalRecipe["source"], draftName: string) => {
     const trimmed = draftName.trim();
     if (!trimmed) {
@@ -351,23 +380,23 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border bg-card p-4">
-        <h3 className="text-sm font-semibold">Recipe Library Sources</h3>
-        <p className="mt-1 text-xs text-muted-foreground">Manage where recipes come from. Local library entries persist in your browser when backend recipe CRUD is unavailable.</p>
+        <h3 className="text-sm font-semibold">{tr("Recipe Library Sources", "菜谱来源")}</h3>
+        <p className="mt-1 text-xs text-muted-foreground">{tr("Manage where recipes come from. Local library entries persist in your browser when backend recipe CRUD is unavailable.", "管理菜谱来源。后端不可用时，本地菜谱会保存在浏览器中。")}</p>
         <div className="mt-3 grid grid-cols-2 gap-2 text-xs md:grid-cols-5">
-          <div className="rounded-xl border bg-muted/20 p-2">Built-in: <span className="font-semibold">{sourceCounts.builtIn}</span></div>
-          <div className="rounded-xl border bg-muted/20 p-2">User: <span className="font-semibold">{sourceCounts.user}</span></div>
-          <div className="rounded-xl border bg-muted/20 p-2">Imported: <span className="font-semibold">{sourceCounts.imported}</span></div>
-          <div className="rounded-xl border bg-muted/20 p-2">Family: <span className="font-semibold">{sourceCounts.family}</span></div>
-          <div className="rounded-xl border bg-muted/20 p-2">Hidden: <span className="font-semibold">{sourceCounts.hidden}</span></div>
+          <div className="rounded-xl border bg-muted/20 p-2">{tr("Built-in", "内置菜谱")}: <span className="font-semibold">{sourceCounts.builtIn}</span></div>
+          <div className="rounded-xl border bg-muted/20 p-2">{tr("User", "自建")}: <span className="font-semibold">{sourceCounts.user}</span></div>
+          <div className="rounded-xl border bg-muted/20 p-2">{tr("Imported", "导入菜谱")}: <span className="font-semibold">{sourceCounts.imported}</span></div>
+          <div className="rounded-xl border bg-muted/20 p-2">{tr("Family", "家庭收藏")}: <span className="font-semibold">{sourceCounts.family}</span></div>
+          <div className="rounded-xl border bg-muted/20 p-2">{tr("Hidden", "已隐藏")}: <span className="font-semibold">{sourceCounts.hidden}</span></div>
         </div>
 
         <div className="mt-4 grid gap-2 md:grid-cols-3">
           <div className="space-y-2 rounded-xl border p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Create Manually</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr("Create Manually", "手动创建")}</p>
             <input
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={newRecipeName}
-              placeholder="Recipe name"
+              placeholder={tr("Recipe name", "菜谱名称")}
               onChange={(event) => setNewRecipeName(event.target.value)}
             />
             <select
@@ -375,8 +404,8 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
               value={newRecipeSource}
               onChange={(event) => setNewRecipeSource(event.target.value as LocalRecipe["source"])}
             >
-              <option value="USER">User Recipes</option>
-              <option value="FAMILY_FAVORITES">Family Favorites</option>
+              <option value="USER">{tr("User Recipes", "自建菜谱")}</option>
+              <option value="FAMILY_FAVORITES">{tr("Family Favorites", "家庭收藏")}</option>
             </select>
             <button
               type="button"
@@ -386,12 +415,12 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
                 setNewRecipeName("");
               }}
             >
-              Save Recipe
+              {tr("Save Recipe", "保存菜谱")}
             </button>
           </div>
 
           <div className="space-y-2 rounded-xl border p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Import From URL</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr("Import From URL", "从链接导入")}</p>
             <input
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={recipeImportUrl}
@@ -403,16 +432,16 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
               className="h-10 w-full rounded-md border border-primary/30 bg-primary/10 px-3 text-sm font-medium text-primary"
               onClick={importFromUrl}
             >
-              Import URL
+              {tr("Import URL", "导入链接")}
             </button>
           </div>
 
           <div className="space-y-2 rounded-xl border p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Paste Text / Screenshot</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr("Paste Text / Screenshot", "粘贴文本 / 截图")}</p>
             <textarea
               className="min-h-[72px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={recipePasteText}
-              placeholder="Paste recipe text"
+              placeholder={tr("Paste recipe text", "粘贴菜谱文本")}
               onChange={(event) => setRecipePasteText(event.target.value)}
             />
             <div className="grid grid-cols-2 gap-2">
@@ -421,10 +450,10 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
                 className="h-10 rounded-md border border-primary/30 bg-primary/10 px-3 text-sm font-medium text-primary"
                 onClick={importFromText}
               >
-                Import Text
+                {tr("Import Text", "导入文本")}
               </button>
               <label className="flex h-10 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm">
-                Upload Image
+                {tr("Upload Image", "上传图片")}
                 <input
                   type="file"
                   accept="image/*"
@@ -437,13 +466,25 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
         </div>
       </div>
 
+      <div className="rounded-2xl border bg-card p-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tr("Tonight intent", "今晚想吃")}</p>
+        <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-6">
+          <button type="button" className="h-10 rounded-lg border px-3 text-sm" onClick={() => applyIntent("tonight")}>{tr("What to cook tonight", "今晚吃什么")}</button>
+          <button type="button" className="h-10 rounded-lg border px-3 text-sm" onClick={() => applyIntent("quick")}>{tr("Quick meal", "快手菜")}</button>
+          <button type="button" className="h-10 rounded-lg border px-3 text-sm" onClick={() => applyIntent("expiring")}>{tr("Use expiring foods", "用掉快过期食材")}</button>
+          <button type="button" className="h-10 rounded-lg border px-3 text-sm" onClick={() => applyIntent("high-protein")}>{tr("High protein", "高蛋白")}</button>
+          <button type="button" className="h-10 rounded-lg border px-3 text-sm" onClick={() => applyIntent("light")}>{tr("Lighter", "清淡一点")}</button>
+          <button type="button" className="h-10 rounded-lg border px-3 text-sm" onClick={() => applyIntent("home-style")}>{tr("Home style", "家常菜")}</button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
         <select
           className="h-11 rounded-md border border-input bg-background px-3"
           value={cuisine}
           onChange={(event) => setCuisine(event.target.value)}
         >
-          <option value="ALL">All cuisines</option>
+          <option value="ALL">{tr("All cuisines", "全部菜系")}</option>
           <option value="Chinese">Chinese</option>
           <option value="Japanese">Japanese</option>
           <option value="Korean">Korean</option>
@@ -451,14 +492,14 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
           <option value="Mediterranean">Mediterranean</option>
         </select>
         <select className="h-11 rounded-md border border-input bg-background px-3" value={mealType} onChange={(event) => setMealType(event.target.value)}>
-          <option value="ALL">All meal types</option>
-          <option value="breakfast">Breakfast</option>
-          <option value="lunch">Lunch</option>
-          <option value="dinner">Dinner</option>
-          <option value="snack">Snack</option>
+          <option value="ALL">{tr("All meal types", "全部餐别")}</option>
+          <option value="breakfast">{tr("Breakfast", "早餐")}</option>
+          <option value="lunch">{tr("Lunch", "午餐")}</option>
+          <option value="dinner">{tr("Dinner", "晚餐")}</option>
+          <option value="snack">{tr("Snack", "加餐")}</option>
         </select>
         <select className="h-11 rounded-md border border-input bg-background px-3" value={proteinType} onChange={(event) => setProteinType(event.target.value)}>
-          <option value="ALL">All protein types</option>
+          <option value="ALL">{tr("All protein types", "全部蛋白质类型")}</option>
           <option value="chicken">Chicken</option>
           <option value="beef">Beef</option>
           <option value="pork">Pork</option>
@@ -469,11 +510,11 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
           <option value="mixed">Mixed</option>
         </select>
         <select className="h-11 rounded-md border border-input bg-background px-3" value={dietaryTag} onChange={(event) => setDietaryTag(event.target.value)}>
-          <option value="ALL">All dietary tags</option>
-          <option value="vegetarian">Vegetarian</option>
-          <option value="high-protein">High Protein</option>
-          <option value="quick">Quick</option>
-          <option value="high-fiber">High Fiber</option>
+          <option value="ALL">{tr("All dietary tags", "全部饮食标签")}</option>
+          <option value="vegetarian">{tr("Vegetarian", "素食")}</option>
+          <option value="high-protein">{tr("High Protein", "高蛋白")}</option>
+          <option value="quick">{tr("Quick", "快手")}</option>
+          <option value="high-fiber">{tr("High Fiber", "高纤维")}</option>
         </select>
         <input
           className="h-11 rounded-md border border-input bg-background px-3"
@@ -481,7 +522,7 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
           min="5"
           step="5"
           value={maxCookTime}
-          placeholder="Max cooking time (min)"
+          placeholder={tr("Max cooking time (min)", "最长烹饪时间（分钟）")}
           onChange={(event) => setMaxCookTime(event.target.value)}
         />
         <input
@@ -490,7 +531,7 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
           min="0"
           step="1"
           value={proteinTarget}
-          placeholder="Protein target per recipe (g)"
+          placeholder={tr("Protein target per recipe (g)", "每道菜蛋白目标（g）")}
           onChange={(event) => setProteinTarget(event.target.value)}
         />
       </div>
@@ -498,6 +539,7 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
       <RecommendationList
         recommendations={mergedRecommendations}
         preferences={preferences}
+        language={language}
         onToggleFavorite={toggleFavorite}
         onHide={hideRecipe}
         onNotInterested={markNotInterested}

@@ -58,11 +58,12 @@ export function NavLinks({ showProfile, mode = "desktop" }: NavLinksProps) {
   const pathname = usePathname();
   const language = useUiStore((state) => state.language);
   const navLinks = showProfile ? links : links.filter((link) => link.href !== "/profile");
+  const scanLabel = t(language, "navScan");
 
   if (mode === "mobile") {
     return (
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 px-3 pb-[max(env(safe-area-inset-bottom),0.9rem)] pt-2 backdrop-blur md:hidden">
-        <div className="mx-auto flex max-w-md items-end justify-between gap-1">
+      <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-[80] border-t bg-background/95 px-3 pb-[max(env(safe-area-inset-bottom),0.9rem)] pt-2 backdrop-blur md:hidden">
+        <div className="pointer-events-auto mx-auto flex max-w-md items-end justify-between gap-1">
           {mobileLinks.map((link) => {
             const Icon = link.icon;
             const active = isLinkActive(pathname, link.href);
@@ -74,7 +75,7 @@ export function NavLinks({ showProfile, mode = "desktop" }: NavLinksProps) {
                 href={isPrimary ? { pathname: "/receipts", query: { capture: "1" } } : link.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-medium text-muted-foreground/70 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "touch-manipulation flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-medium text-muted-foreground/70 transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   active && !isPrimary && "bg-primary text-primary-foreground shadow-sm",
                   isPrimary &&
                     "-translate-y-4 rounded-[1.4rem] bg-primary px-4 py-3 text-primary-foreground shadow-[0_18px_40px_-20px_rgba(0,0,0,0.55)]",
@@ -82,7 +83,7 @@ export function NavLinks({ showProfile, mode = "desktop" }: NavLinksProps) {
                 )}
               >
                 <Icon className={cn(isPrimary ? "h-5 w-5" : "h-4.5 w-4.5", active && !isPrimary && "text-primary-foreground")} />
-                <span className={cn("truncate", isPrimary && "text-xs")}>{isPrimary ? "Scan" : t(language, link.labelKey)}</span>
+                <span className={cn("truncate", isPrimary && "text-xs")}>{isPrimary ? scanLabel : t(language, link.labelKey)}</span>
               </Link>
             );
           })}
