@@ -1,5 +1,4 @@
 import { ItemCategory, OcrLineStatus, ReceiptStatus, StorageLocation } from "@prisma/client";
-import { createWorker } from "tesseract.js";
 
 export type OcrExtractedLine = {
   rawLine?: string;
@@ -9,6 +8,16 @@ export type OcrExtractedLine = {
   extractedPrice?: number;
   confidence?: number;
 };
+
+export type ReceiptOcrOutput = {
+  rawText: string;
+  retailer: ReceiptRetailer;
+  confidence: number | null;
+  lines: Array<OcrExtractedLine & { lineStatus: OcrLineStatus }>;
+  provider: "ocr_space" | "tesseract" | "mock";
+};
+
+type ReceiptOcrProvider = "ocr_space" | "tesseract" | "mock";
 
 type ReceiptRetailer = "costco" | "walmart" | "safeway" | "unknown";
 
@@ -27,6 +36,13 @@ const RECEIPT_LINE_BLACKLIST = [
 ];
 
 const UNIT_HINTS = ["lb", "lbs", "kg", "g", "oz", "ct", "pk", "ea", "pcs", "pc", "gal", "l"];
+
+const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_MOCK_RAW_TEXT = [
+  "EGGS LARGE 1 CT 4.99",
+  "WHOLE MILK 1 GAL 4.49",
+  "BANANAS 2 LB 1.98"
+].join("\n");
 
 export async function enqueueReceiptProcessing(_receiptUploadId: string) {
   void _receiptUploadId;
@@ -57,6 +73,46 @@ export function detectRetailer(rawText: string): ReceiptRetailer {
   }
 
   return "unknown";
+}
+
+function normalizeBase64(imageBase64: string) {
+  const trimmed = imageBase64.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  if (!trimmed.includes(",")) {
+    return trimmed;
+  }
+
+  return trimmed.split(",")[1] ?? "";
+}
+
+function toConfidenceFraction(rawConfidence: number | null | undefined) {
+  if (typeof rawConfidence !== "number" || !Number.isFinite(rawConfidence)) {
+    return null;
+  }
+
+  const normalized = rawConfidence > 1 ? rawConfidence / 100 : rawConfidence;
+  return Math.max(0, Math.min(1, Math.round(normalized * 100) / 100));
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    promise
+      .then((result) => {
+        clearTimeout(timer);
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
 }
 
 function cleanName(name: string) {
@@ -172,31 +228,150 @@ export function parseReceiptLines(rawText: string, retailer: ReceiptRetailer): O
   return parsed.slice(0, 80);
 }
 
-export async function runReceiptOcrFromBase64(imageBase64: string) {
+function parseTimeoutMs() {
+  const configured = Number(process.env.RECEIPT_OCR_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
+  if (!Number.isFinite(configured)) {
+    return DEFAULT_TIMEOUT_MS;
+  }
+
+  return Math.max(3_000, Math.min(60_000, Math.trunc(configured)));
+}
+
+function resolveOcrProvider(): ReceiptOcrProvider {
+  const configured = process.env.RECEIPT_OCR_PROVIDER?.toLowerCase();
+  const hasOcrSpace = Boolean(process.env.OCR_SPACE_API_KEY);
+
+  if (configured === "ocr_space" || configured === "tesseract" || configured === "mock") {
+    return configured;
+  }
+
+  if (hasOcrSpace) {
+    return "ocr_space";
+  }
+
+  return process.env.NODE_ENV === "development" ? "tesseract" : "mock";
+}
+
+async function runOcrSpaceOcr(imageBase64: string): Promise<ReceiptOcrOutput> {
+  const apiKey = process.env.OCR_SPACE_API_KEY;
+  if (!apiKey) {
+    throw new Error("OCR_SPACE_API_KEY is missing");
+  }
+
+  const formData = new FormData();
+  formData.set("base64Image", `data:image/jpeg;base64,${normalizeBase64(imageBase64)}`);
+  formData.set("language", "eng");
+  formData.set("isOverlayRequired", "false");
+  formData.set("isTable", "false");
+  formData.set("OCREngine", "2");
+
+  const response = await fetch("https://api.ocr.space/parse/image", {
+    method: "POST",
+    headers: {
+      apikey: apiKey
+    },
+    body: formData
+  });
+
+  if (!response.ok) {
+    throw new Error(`OCR.Space HTTP ${response.status}`);
+  }
+
+  const payload = (await response.json()) as {
+    IsErroredOnProcessing?: boolean;
+    ErrorMessage?: string | string[];
+    ParsedResults?: Array<{ ParsedText?: string; TextOverlay?: { HasOverlay?: boolean } }>;
+  };
+
+  if (payload.IsErroredOnProcessing) {
+    const message = Array.isArray(payload.ErrorMessage) ? payload.ErrorMessage.join("; ") : payload.ErrorMessage;
+    throw new Error(message || "OCR.Space processing failed");
+  }
+
+  const rawText = payload.ParsedResults?.[0]?.ParsedText?.trim() ?? "";
+  if (!rawText) {
+    throw new Error("OCR.Space returned empty text");
+  }
+
+  const retailer = detectRetailer(rawText);
+  const parsedLines = parseReceiptLines(rawText, retailer).map((line) => ({
+    ...line,
+    confidence: 0.8
+  }));
+
+  return {
+    rawText,
+    retailer,
+    confidence: 0.8,
+    lines: mapRawLinesToOcrResults(parsedLines),
+    provider: "ocr_space"
+  };
+}
+
+async function runTesseractOcr(imageBase64: string): Promise<ReceiptOcrOutput> {
+  const { createWorker } = await import("tesseract.js");
   const worker = await createWorker("eng");
 
   try {
-    const imageBuffer = Buffer.from(imageBase64, "base64");
+    const imageBuffer = Buffer.from(normalizeBase64(imageBase64), "base64");
     const {
       data: { text, confidence }
     } = await worker.recognize(imageBuffer);
 
     const rawText = text.trim();
+    if (!rawText) {
+      throw new Error("Tesseract returned empty text");
+    }
+
     const retailer = detectRetailer(rawText);
+    const normalizedConfidence = toConfidenceFraction(confidence);
     const parsedLines = parseReceiptLines(rawText, retailer).map((line) => ({
       ...line,
-      confidence: Math.round(confidence) / 100
+      confidence: normalizedConfidence ?? undefined
     }));
 
     return {
       rawText,
       retailer,
-      confidence: Math.round(confidence) / 100,
-      lines: mapRawLinesToOcrResults(parsedLines)
+      confidence: normalizedConfidence,
+      lines: mapRawLinesToOcrResults(parsedLines),
+      provider: "tesseract"
     };
   } finally {
     await worker.terminate();
   }
+}
+
+export function buildMockReceiptOcrResult() {
+  const rawText = DEFAULT_MOCK_RAW_TEXT;
+  const retailer = detectRetailer(rawText);
+  const parsedLines = parseReceiptLines(rawText, retailer).map((line) => ({
+    ...line,
+    confidence: 0.65
+  }));
+
+  return {
+    rawText,
+    retailer,
+    confidence: 0.65,
+    lines: mapRawLinesToOcrResults(parsedLines),
+    provider: "mock" as const
+  };
+}
+
+export async function runReceiptOcrFromBase64(imageBase64: string): Promise<ReceiptOcrOutput> {
+  const timeoutMs = parseTimeoutMs();
+  const provider = resolveOcrProvider();
+
+  if (provider === "mock") {
+    return buildMockReceiptOcrResult();
+  }
+
+  if (provider === "ocr_space") {
+    return withTimeout(runOcrSpaceOcr(imageBase64), timeoutMs, "OCR.Space");
+  }
+
+  return withTimeout(runTesseractOcr(imageBase64), timeoutMs, "Tesseract OCR");
 }
 
 export function inferReceiptItemDetails(name: string) {

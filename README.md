@@ -71,6 +71,7 @@ Detailed guide: `docs/SUPABASE_SETUP.md`
 
 ## Notes
 
-- Receipt scanner is architecture-only (no external OCR provider yet).
+- Receipt scanner now uses a reliable upload-process-status flow with timeout-safe OCR states.
+- OCR provider selection supports `OCR_SPACE_API_KEY` (OCR.Space) or a fast mock fallback via `RECEIPT_OCR_PROVIDER`.
 - AI assistant uses mock responses and a prompt template layer.
 - Family sharing schema is included (`households`, `household_members`) for future expansion.
