@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Home Food OS icon">
+  <rect width="512" height="512" rx="104" fill="#f97316"/>
+  <path d="M152 318c0-58 46-104 104-104s104 46 104 104" fill="none" stroke="#fff" stroke-width="34" stroke-linecap="round"/>
+  <circle cx="256" cy="192" r="54" fill="#fff"/>
+</svg>

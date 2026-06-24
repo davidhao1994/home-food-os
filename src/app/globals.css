@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 40 33% 98%;
+  --foreground: 25 24% 14%;
+  --card: 0 0% 100%;
+  --card-foreground: 25 24% 14%;
+  --primary: 18 70% 48%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 37 43% 93%;
+  --secondary-foreground: 20 22% 24%;
+  --muted: 35 26% 94%;
+  --muted-foreground: 20 14% 40%;
+  --border: 33 24% 86%;
+  --input: 33 24% 86%;
+  --ring: 18 70% 48%;
+  --warning: 45 96% 52%;
+  --warning-foreground: 31 100% 14%;
+  --success: 143 73% 32%;
+  --success-foreground: 0 0% 100%;
+  --danger: 0 72% 51%;
+  --danger-foreground: 0 0% 100%;
+  --radius: 1rem;
+}
+
+.dark {
+  --background: 20 20% 9%;
+  --foreground: 39 35% 96%;
+  --card: 24 18% 12%;
+  --card-foreground: 39 35% 96%;
+  --primary: 20 86% 58%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 28 10% 18%;
+  --secondary-foreground: 39 35% 96%;
+  --muted: 26 10% 16%;
+  --muted-foreground: 34 10% 70%;
+  --border: 26 8% 28%;
+  --input: 26 8% 28%;
+  --ring: 20 86% 58%;
+  --warning: 43 90% 56%;
+  --warning-foreground: 31 100% 14%;
+  --success: 149 73% 38%;
+  --success-foreground: 0 0% 100%;
+  --danger: 0 84% 60%;
+  --danger-foreground: 0 0% 100%;
+}
+
+body {
+  @apply bg-background text-foreground min-h-screen antialiased;
+  background-image:
+    radial-gradient(circle at 15% 20%, hsla(18, 70%, 48%, 0.08), transparent 30%),
+    radial-gradient(circle at 80% 0%, hsla(143, 73%, 32%, 0.1), transparent 32%);
+}
+
+* {
+  @apply border-border;
+}

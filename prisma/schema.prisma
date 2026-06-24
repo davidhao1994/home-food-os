@@ -1,0 +1,276 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum ItemCategory {
+  MEAT
+  SEAFOOD
+  VEGETABLES
+  FRUITS
+  DAIRY
+  EGGS
+  GRAINS
+  FROZEN_FOODS
+  CONDIMENTS
+  SNACKS
+  BEVERAGES
+  OTHER
+}
+
+enum StorageLocation {
+  REFRIGERATOR
+  FREEZER
+  PANTRY
+  COUNTERTOP
+}
+
+enum ShoppingPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum ReceiptStatus {
+  UPLOADED
+  PROCESSING
+  REVIEW_REQUIRED
+  COMPLETED
+  FAILED
+}
+
+enum OcrLineStatus {
+  EXTRACTED
+  CONFIRMED
+  REJECTED
+}
+
+enum RecipeDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+model Profile {
+  id         String   @id @db.Uuid
+  email      String   @unique
+  fullName   String?
+  avatarUrl  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  households HouseholdMember[]
+  ownedHouseholds Household[] @relation("HouseholdOwner")
+  inventory  InventoryItem[]
+  shopping   ShoppingListItem[]
+  receipts   ReceiptUpload[]
+  aiChats    AiConversation[]
+  consumptions InventoryConsumption[]
+
+  @@map("profiles")
+}
+
+model Household {
+  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  ownerId     String            @db.Uuid
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  owner       Profile           @relation("HouseholdOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members     HouseholdMember[]
+  inventory   InventoryItem[]
+  shopping    ShoppingListItem[]
+
+  @@index([ownerId])
+  @@map("households")
+}
+
+model HouseholdMember {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  householdId String   @db.Uuid
+  userId      String   @db.Uuid
+  role        String   @default("member")
+  createdAt   DateTime @default(now())
+
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user        Profile   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, userId])
+  @@map("household_members")
+}
+
+model InventoryItem {
+  id              String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String          @db.Uuid
+  householdId     String?         @db.Uuid
+  name            String
+  brand           String?
+  barcode         String?
+  quantity        Decimal         @db.Decimal(10, 2)
+  unit            String
+  lowStockThreshold Decimal       @default(1) @db.Decimal(10, 2)
+  consumptionRatePerDay Decimal?  @db.Decimal(10, 2)
+  unitPrice       Decimal?        @db.Decimal(10, 2)
+  category        ItemCategory
+  purchaseDate    DateTime?
+  expirationDate  DateTime?
+  storageLocation StorageLocation
+  notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  user            Profile         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  household       Household?      @relation(fields: [householdId], references: [id], onDelete: SetNull)
+  consumptions    InventoryConsumption[]
+
+  @@index([userId, expirationDate])
+  @@index([category])
+  @@index([userId, barcode])
+  @@map("inventory_items")
+}
+
+model InventoryConsumption {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  itemId      String        @db.Uuid
+  userId      String        @db.Uuid
+  quantity    Decimal       @db.Decimal(10, 2)
+  note        String?
+  consumedAt  DateTime      @default(now())
+  createdAt   DateTime      @default(now())
+
+  item        InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user        Profile       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, consumedAt])
+  @@index([itemId, consumedAt])
+  @@map("inventory_consumptions")
+}
+
+model ShoppingListItem {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String           @db.Uuid
+  householdId    String?          @db.Uuid
+  name           String
+  quantity       Decimal          @db.Decimal(10, 2)
+  unit           String
+  category       ItemCategory
+  priority       ShoppingPriority @default(MEDIUM)
+  estimatedPrice Decimal?         @db.Decimal(10, 2)
+  isPurchased    Boolean          @default(false)
+  purchasedAt    DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  user           Profile          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  household      Household?       @relation(fields: [householdId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isPurchased])
+  @@map("shopping_list_items")
+}
+
+model Recipe {
+  id          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  description String?
+  cuisine     String
+  cookTime    Int
+  difficulty  RecipeDifficulty
+  calories    Int?
+  protein     Decimal?           @db.Decimal(10, 2)
+  carbs       Decimal?           @db.Decimal(10, 2)
+  fat         Decimal?           @db.Decimal(10, 2)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  ingredients RecipeIngredient[]
+
+  @@index([cuisine])
+  @@map("recipes")
+}
+
+model RecipeIngredient {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recipeId  String   @db.Uuid
+  name      String
+  quantity  Decimal? @db.Decimal(10, 2)
+  unit      String?
+  category  ItemCategory?
+  isOptional Boolean @default(false)
+
+  recipe    Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([recipeId])
+  @@map("recipe_ingredients")
+}
+
+model ReceiptUpload {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String        @db.Uuid
+  imageUrl      String
+  retailer      String?
+  status        ReceiptStatus @default(UPLOADED)
+  uploadedAt    DateTime      @default(now())
+  processedAt   DateTime?
+  rawText       String?
+  createdAt     DateTime      @default(now())
+
+  user          Profile       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ocrResults    OcrResult[]
+
+  @@index([userId, status])
+  @@map("receipt_uploads")
+}
+
+model OcrResult {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  receiptUploadId  String        @db.Uuid
+  rawLine          String?
+  extractedName    String
+  extractedQuantity Decimal?      @db.Decimal(10, 2)
+  extractedUnit    String?
+  extractedPrice   Decimal?      @db.Decimal(10, 2)
+  confidence       Decimal?      @db.Decimal(5, 2)
+  lineStatus       OcrLineStatus @default(EXTRACTED)
+  mappedCategory   ItemCategory?
+  createdAt        DateTime      @default(now())
+
+  receiptUpload    ReceiptUpload @relation(fields: [receiptUploadId], references: [id], onDelete: Cascade)
+
+  @@index([receiptUploadId])
+  @@map("ocr_results")
+}
+
+model FoodNutrition {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String   @unique
+  aliases      String[]
+  calories     Decimal  @db.Decimal(10, 2)
+  protein      Decimal  @db.Decimal(10, 2)
+  fat          Decimal  @db.Decimal(10, 2)
+  carbs        Decimal  @db.Decimal(10, 2)
+  fiber        Decimal  @db.Decimal(10, 2)
+  source       String   @default("USDA_MAPPED")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("food_nutrition")
+}
+
+model AiConversation {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String   @db.Uuid
+  prompt     String
+  response   String
+  createdAt  DateTime @default(now())
+
+  user       Profile  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("ai_conversations")
+}
