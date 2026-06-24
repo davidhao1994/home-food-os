@@ -8,7 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useUiStore } from "@/store/ui-store";
-import { getExpirationBucket, getExpirationLabel } from "@/utils/food";
+import {
+  formatCategoryLabel,
+  getDefaultStorageLocation,
+  getExpirationBucket,
+  getExpirationLabel,
+  getFoodCategoryDefaults,
+  getSuggestedExpirationDate
+} from "@/utils/food";
 
 type InventoryDto = {
   id: string;
@@ -48,10 +55,18 @@ const categories = [
 
 const locations = ["REFRIGERATOR", "FREEZER", "PANTRY", "COUNTERTOP"] as const;
 
-export function InventoryView({ initialItems }: Props) {
-  const [items, setItems] = useState(initialItems);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState({
+const DEFAULT_PURCHASE_DATE = new Date().toISOString().slice(0, 10);
+
+function parseDateInput(value: string) {
+  return value ? new Date(`${value}T12:00:00`) : null;
+}
+
+function formatDateInput(value: Date | null) {
+  return value ? value.toISOString().slice(0, 10) : "";
+}
+
+function createDefaultForm(category: ItemCategory = "OTHER", purchaseDate = DEFAULT_PURCHASE_DATE) {
+  return {
     name: "",
     brand: "",
     barcode: "",
@@ -60,16 +75,24 @@ export function InventoryView({ initialItems }: Props) {
     lowStockThreshold: "1",
     consumptionRatePerDay: "",
     unitPrice: "",
-    category: "OTHER" as ItemCategory,
-    purchaseDate: "",
-    expirationDate: "",
-    storageLocation: "PANTRY" as StorageLocation,
+    category,
+    purchaseDate,
+    expirationDate: formatDateInput(getSuggestedExpirationDate(category, parseDateInput(purchaseDate))),
+    storageLocation: getDefaultStorageLocation(category),
     notes: ""
-  });
+  };
+}
+
+export function InventoryView({ initialItems }: Props) {
+  const [items, setItems] = useState(initialItems);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(createDefaultForm());
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [locationFilter, setLocationFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState<"name" | "expiration">("expiration");
   const { inventoryView, search, setInventoryView, setSearch } = useUiStore();
+  const categoryDefaults = getFoodCategoryDefaults(form.category);
+  const suggestedExpirationDate = formatDateInput(getSuggestedExpirationDate(form.category, parseDateInput(form.purchaseDate)));
 
   const filtered = useMemo(() => {
     return [...items]
@@ -90,20 +113,33 @@ export function InventoryView({ initialItems }: Props) {
 
   const resetForm = () => {
     setEditingId(null);
-    setForm({
-      name: "",
-      brand: "",
-      barcode: "",
-      quantity: "1",
-      unit: "pcs",
-      lowStockThreshold: "1",
-      consumptionRatePerDay: "",
-      unitPrice: "",
-      category: "OTHER",
-      purchaseDate: "",
-      expirationDate: "",
-      storageLocation: "PANTRY",
-      notes: ""
+    setForm(createDefaultForm());
+  };
+
+  const updateCategory = (nextCategory: ItemCategory) => {
+    setForm((current) => {
+      const previousSuggested = formatDateInput(getSuggestedExpirationDate(current.category, parseDateInput(current.purchaseDate)));
+      const nextSuggested = formatDateInput(getSuggestedExpirationDate(nextCategory, parseDateInput(current.purchaseDate)));
+
+      return {
+        ...current,
+        category: nextCategory,
+        storageLocation: getDefaultStorageLocation(nextCategory),
+        expirationDate: !current.expirationDate || current.expirationDate === previousSuggested ? nextSuggested : current.expirationDate
+      };
+    });
+  };
+
+  const updatePurchaseDate = (purchaseDate: string) => {
+    setForm((current) => {
+      const previousSuggested = formatDateInput(getSuggestedExpirationDate(current.category, parseDateInput(current.purchaseDate)));
+      const nextSuggested = formatDateInput(getSuggestedExpirationDate(current.category, parseDateInput(purchaseDate)));
+
+      return {
+        ...current,
+        purchaseDate,
+        expirationDate: !current.expirationDate || current.expirationDate === previousSuggested ? nextSuggested : current.expirationDate
+      };
     });
   };
 
@@ -247,7 +283,7 @@ export function InventoryView({ initialItems }: Props) {
             />
             <select
               value={form.category}
-              onChange={(event) => setForm((current) => ({ ...current, category: event.target.value as ItemCategory }))}
+              onChange={(event) => updateCategory(event.target.value as ItemCategory)}
               className="h-11 rounded-md border border-input bg-background px-3"
             >
               {categories.map((category) => (
@@ -272,13 +308,25 @@ export function InventoryView({ initialItems }: Props) {
             <Input
               type="date"
               value={form.purchaseDate}
-              onChange={(event) => setForm((current) => ({ ...current, purchaseDate: event.target.value }))}
+              onChange={(event) => updatePurchaseDate(event.target.value)}
             />
             <Input
               type="date"
               value={form.expirationDate}
               onChange={(event) => setForm((current) => ({ ...current, expirationDate: event.target.value }))}
             />
+            <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 px-3 py-3 text-sm text-muted-foreground md:col-span-2">
+              <p className="font-medium text-foreground">Smart defaults for {formatCategoryLabel(form.category)}</p>
+              <p className="mt-1">
+                Store in {formatCategoryLabel(categoryDefaults.storageLocation)} and use within {categoryDefaults.expirationDays ?? "a flexible"} day{categoryDefaults.expirationDays === 1 ? "" : "s"}.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant="secondary" onClick={() => setForm((current) => ({ ...current, expirationDate: suggestedExpirationDate }))}>
+                  Apply suggested expiration
+                </Button>
+                <span className="self-center text-xs text-muted-foreground">Suggested date: {suggestedExpirationDate || "No date"}</span>
+              </div>
+            </div>
             <div className="md:col-span-2">
               <Input
                 value={form.notes}

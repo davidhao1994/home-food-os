@@ -52,7 +52,9 @@ export default async function DashboardPage() {
       recommendations={recommendations.map((recipe) => ({
         recipeId: recipe.recipeId,
         name: recipe.name,
-        matchScore: recipe.matchScore
+        matchScore: recipe.matchScore,
+        reason: recipe.reason,
+        missingIngredients: recipe.missingIngredients
       }))}
     />
   );

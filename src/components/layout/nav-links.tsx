@@ -10,6 +10,7 @@ import { useUiStore } from "@/store/ui-store";
 
 type NavLinksProps = {
   showProfile: boolean;
+  mode?: "desktop" | "mobile";
 };
 
 type NavLink = {
@@ -37,6 +38,14 @@ const links: NavLink[] = [
   { href: "/profile", icon: User2, labelKey: "navProfile" }
 ];
 
+const mobileLinks: NavLink[] = [
+  { href: "/dashboard", icon: LayoutDashboard, labelKey: "navDashboard" },
+  { href: "/inventory", icon: Apple, labelKey: "navInventory" },
+  { href: "/receipts", icon: Receipt, labelKey: "navReceipts" },
+  { href: "/shopping", icon: ShoppingBasket, labelKey: "navShopping" },
+  { href: "/recipes", icon: ChefHat, labelKey: "navRecipes" }
+];
+
 function isLinkActive(pathname: string, href: Route) {
   if (pathname === href) {
     return true;
@@ -45,10 +54,42 @@ function isLinkActive(pathname: string, href: Route) {
   return pathname.startsWith(`${href}/`);
 }
 
-export function NavLinks({ showProfile }: NavLinksProps) {
+export function NavLinks({ showProfile, mode = "desktop" }: NavLinksProps) {
   const pathname = usePathname();
   const language = useUiStore((state) => state.language);
   const navLinks = showProfile ? links : links.filter((link) => link.href !== "/profile");
+
+  if (mode === "mobile") {
+    return (
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 px-3 pb-[max(env(safe-area-inset-bottom),0.9rem)] pt-2 backdrop-blur md:hidden">
+        <div className="mx-auto flex max-w-md items-end justify-between gap-1">
+          {mobileLinks.map((link) => {
+            const Icon = link.icon;
+            const active = isLinkActive(pathname, link.href);
+            const isPrimary = link.href === "/receipts";
+
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-medium text-muted-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  active && !isPrimary && "bg-muted text-foreground",
+                  isPrimary &&
+                    "-translate-y-4 rounded-[1.4rem] bg-primary px-4 py-3 text-primary-foreground shadow-[0_18px_40px_-20px_rgba(0,0,0,0.55)]",
+                  isPrimary && active && "ring-2 ring-primary/30"
+                )}
+              >
+                <Icon className={cn(isPrimary ? "h-5 w-5" : "h-4.5 w-4.5", active && !isPrimary && "text-primary")} />
+                <span className={cn("truncate", isPrimary && "text-xs")}>{isPrimary ? "Scan" : t(language, link.labelKey)}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+    );
+  }
 
   return (
     <nav className="flex gap-2 overflow-x-auto pb-1 md:grid md:grid-cols-1 md:overflow-visible md:pb-0">

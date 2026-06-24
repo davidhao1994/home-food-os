@@ -4,6 +4,7 @@ type AssistantRecipeMatch = {
   name: string;
   matchScore: number;
   missingIngredients: string[];
+  reason: string;
   cuisine?: string;
 };
 
@@ -103,7 +104,10 @@ export async function getAssistantResponse(message: AiMessage) {
 
     return {
       text: `Best ${cuisine} dishes for your current ingredients:\n${top
-        .map((recipe) => `- ${recipe.name} (${recipe.matchScore}% match${recipe.missingIngredients.length ? `, missing: ${recipe.missingIngredients.join(", ")}` : ""})`)
+        .map(
+          (recipe) =>
+            `- ${recipe.name} (${recipe.matchScore}% match${recipe.missingIngredients.length ? `, missing: ${recipe.missingIngredients.join(", ")}` : ""})\n  Why: ${recipe.reason}`
+        )
         .join("\n")}`
     };
   }
@@ -119,7 +123,10 @@ export async function getAssistantResponse(message: AiMessage) {
 
     return {
       text: `Tonight you could make:\n${topMatches
-        .map((recipe) => `- ${recipe.name} (${recipe.matchScore}% match${recipe.missingIngredients.length ? `, missing: ${recipe.missingIngredients.join(", ")}` : ""})`)
+        .map(
+          (recipe) =>
+            `- ${recipe.name} (${recipe.matchScore}% match${recipe.missingIngredients.length ? `, missing: ${recipe.missingIngredients.join(", ")}` : ""})\n  Why: ${recipe.reason}`
+        )
         .join("\n")}`
     };
   }

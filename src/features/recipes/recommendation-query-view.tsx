@@ -3,23 +3,10 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { RecommendationList } from "@/features/recipes/recommendation-list";
-
-type Recommendation = {
-  recipeId: string;
-  name: string;
-  matchScore: number;
-  ingredientMatchPercent: number;
-  missingIngredients: string[];
-  estimatedCalories: number | null;
-  estimatedProtein: number | null;
-  estimatedFat: number | null;
-  estimatedCarbs: number | null;
-  cookingTime: number;
-  cuisine?: string;
-};
+import type { RecipeRecommendation } from "@/types/domain";
 
 type Props = {
-  initialRecommendations: Recommendation[];
+  initialRecommendations: RecipeRecommendation[];
 };
 
 export function RecommendationQueryView({ initialRecommendations }: Props) {
@@ -53,7 +40,7 @@ export function RecommendationQueryView({ initialRecommendations }: Props) {
       if (!response.ok) {
         throw new Error("Unable to fetch recipe recommendations");
       }
-      return (await response.json()) as { recommendations: Recommendation[] };
+      return (await response.json()) as { recommendations: RecipeRecommendation[] };
     },
     initialData: { recommendations: initialRecommendations }
   });

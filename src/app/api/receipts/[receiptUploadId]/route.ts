@@ -1,6 +1,7 @@
 import { ReceiptStatus } from "@prisma/client";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { buildReceiptReviewLines } from "@/services/receipt-review.service";
 import { jsonResponse } from "@/utils/serialize";
 
 const DEFAULT_STALE_MS = 120_000;
@@ -32,6 +33,33 @@ function serializeLines(
     extractedPrice: line.extractedPrice ? Number(line.extractedPrice) : null,
     confidence: line.confidence ? Number(line.confidence) : null
   }));
+}
+
+async function buildReviewLines(userId: string, lines: ReturnType<typeof serializeLines>) {
+  if (lines.length === 0) {
+    return [];
+  }
+
+  const inventoryItems = await prisma.inventoryItem.findMany({
+    where: { userId },
+    select: {
+      id: true,
+      name: true,
+      quantity: true,
+      unit: true,
+      category: true,
+      storageLocation: true,
+      expirationDate: true
+    }
+  });
+
+  return buildReceiptReviewLines(
+    lines,
+    inventoryItems.map((item) => ({
+      ...item,
+      quantity: Number(item.quantity)
+    }))
+  );
 }
 
 export async function GET(_request: Request, context: { params: Promise<{ receiptUploadId: string }> }) {
@@ -83,11 +111,13 @@ export async function GET(_request: Request, context: { params: Promise<{ receip
         retailer: failed.retailer ?? "unknown",
         processedAt: failed.processedAt,
         rawText: failed.rawText,
-        ocrResults: serializeLines(failed.ocrResults),
+        ocrResults: await buildReviewLines(user.id, serializeLines(failed.ocrResults)),
         error: "OCR processing timed out. Please retry with a clearer photo."
       });
     }
   }
+
+  const serializedLines = serializeLines(receipt.ocrResults);
 
   return jsonResponse({
     receiptUploadId: receipt.id,
@@ -95,6 +125,6 @@ export async function GET(_request: Request, context: { params: Promise<{ receip
     retailer: receipt.retailer ?? "unknown",
     processedAt: receipt.processedAt,
     rawText: receipt.rawText,
-    ocrResults: serializeLines(receipt.ocrResults)
+    ocrResults: await buildReviewLines(user.id, serializedLines)
   });
 }

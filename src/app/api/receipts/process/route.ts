@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runReceiptOcrFromBase64 } from "@/services/ocr.service";
+import { buildReceiptReviewLines } from "@/services/receipt-review.service";
 import { jsonResponse } from "@/utils/serialize";
 
 const processReceiptSchema = z.object({
@@ -30,7 +31,7 @@ function serializeLines(
   }));
 }
 
-async function buildReceiptPayload(receiptUploadId: string) {
+async function buildReceiptPayload(receiptUploadId: string, userId: string) {
   const receipt = await prisma.receiptUpload.findUnique({
     where: { id: receiptUploadId },
     include: {
@@ -44,13 +45,35 @@ async function buildReceiptPayload(receiptUploadId: string) {
     return null;
   }
 
+  const serializedLines = serializeLines(receipt.ocrResults);
+  const inventoryItems = serializedLines.length
+    ? await prisma.inventoryItem.findMany({
+        where: { userId },
+        select: {
+          id: true,
+          name: true,
+          quantity: true,
+          unit: true,
+          category: true,
+          storageLocation: true,
+          expirationDate: true
+        }
+      })
+    : [];
+
   return {
     receiptUploadId: receipt.id,
     status: receipt.status,
     retailer: receipt.retailer ?? "unknown",
     processedAt: receipt.processedAt,
     rawText: receipt.rawText,
-    ocrResults: serializeLines(receipt.ocrResults)
+    ocrResults: buildReceiptReviewLines(
+      serializedLines,
+      inventoryItems.map((item) => ({
+        ...item,
+        quantity: Number(item.quantity)
+      }))
+    )
   };
 }
 
@@ -83,12 +106,12 @@ export async function POST(request: Request) {
   }
 
   if (receipt.status === ReceiptStatus.REVIEW_REQUIRED || receipt.status === ReceiptStatus.COMPLETED) {
-    const existing = await buildReceiptPayload(receipt.id);
+    const existing = await buildReceiptPayload(receipt.id, user.id);
     return jsonResponse(existing, { status: 200 });
   }
 
   if (receipt.status === ReceiptStatus.PROCESSING) {
-    const processing = await buildReceiptPayload(receipt.id);
+    const processing = await buildReceiptPayload(receipt.id, user.id);
     return jsonResponse(processing, { status: 202 });
   }
 
@@ -151,7 +174,7 @@ export async function POST(request: Request) {
       status
     });
 
-    const done = await buildReceiptPayload(receipt.id);
+    const done = await buildReceiptPayload(receipt.id, user.id);
     return jsonResponse(done, { status: 200 });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown OCR error";
@@ -169,7 +192,7 @@ export async function POST(request: Request) {
       }
     });
 
-    const failed = await buildReceiptPayload(receipt.id);
+    const failed = await buildReceiptPayload(receipt.id, user.id);
     return jsonResponse(
       {
         ...failed,

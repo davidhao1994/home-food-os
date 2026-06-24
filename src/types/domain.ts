@@ -21,12 +21,22 @@ export type ItemCategory = (typeof ITEM_CATEGORIES)[number];
 export type StorageLocation = (typeof STORAGE_LOCATIONS)[number];
 export type ShoppingPriority = (typeof SHOPPING_PRIORITIES)[number];
 
+export type RecipeMissingIngredient = {
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  category: ItemCategory | null;
+};
+
 export type RecipeRecommendation = {
   recipeId: string;
   name: string;
   matchScore: number;
   ingredientMatchPercent: number;
   missingIngredients: string[];
+  missingIngredientsDetailed: RecipeMissingIngredient[];
+  matchedIngredients: string[];
+  reason: string;
   estimatedCalories: number | null;
   estimatedProtein: number | null;
   estimatedFat: number | null;

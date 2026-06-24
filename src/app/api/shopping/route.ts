@@ -1,8 +1,9 @@
-import { ItemCategory, ShoppingPriority, StorageLocation } from "@prisma/client";
+import { ItemCategory, ShoppingPriority } from "@prisma/client";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { resolveHouseholdIdForUser } from "@/services/family-demo.service";
+import { getDefaultStorageLocation, getSuggestedExpirationDate } from "@/utils/food";
 import { jsonResponse } from "@/utils/serialize";
 
 const createShoppingSchema = z.object({
@@ -151,6 +152,8 @@ export async function PATCH(request: Request) {
   });
 
   if (body.action === "purchase_and_move") {
+    const expirationDate = getSuggestedExpirationDate(existing.category, new Date());
+
     await prisma.inventoryItem.create({
       data: {
         userId: user.id,
@@ -159,8 +162,9 @@ export async function PATCH(request: Request) {
         quantity: item.quantity,
         unit: item.unit,
         category: item.category,
-        storageLocation: StorageLocation.PANTRY,
+        storageLocation: getDefaultStorageLocation(item.category),
         purchaseDate: new Date(),
+        expirationDate,
         notes: "Added from shopping list"
       }
     });

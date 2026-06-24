@@ -4,8 +4,21 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatCategoryLabel } from "@/utils/food";
 
 type ReceiptWorkflowStatus = "UPLOADED" | "PROCESSING" | "REVIEW_REQUIRED" | "COMPLETED" | "FAILED";
+
+type MergeStrategy = "MERGE" | "CREATE_NEW";
+
+type DuplicateCandidate = {
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  category: string;
+  storageLocation: string;
+  expirationDate: string | null;
+};
 
 type OcrItem = {
   id: string;
@@ -16,6 +29,14 @@ type OcrItem = {
   extractedPrice: number | null;
   confidence: number | null;
   lineStatus: "EXTRACTED" | "CONFIRMED" | "REJECTED";
+  suggestedCategory: string;
+  suggestedStorageLocation: string;
+  suggestedExpirationDate: string | null;
+  duplicateCandidates: DuplicateCandidate[];
+  defaultAction: MergeStrategy;
+  defaultMergeTargetId: string | null;
+  mergeStrategy?: MergeStrategy;
+  existingInventoryItemId?: string | null;
 };
 
 type ReceiptStatusPayload = {
@@ -46,6 +67,14 @@ function statusMessage(status: ReceiptWorkflowStatus) {
   }
 
   return "OCR failed. Please retry with a clearer image.";
+}
+
+function formatSuggestedDate(value: string | null) {
+  if (!value) {
+    return "No date";
+  }
+
+  return new Date(value).toLocaleDateString();
 }
 
 export function ReceiptUploader() {
@@ -87,11 +116,16 @@ export function ReceiptUploader() {
 
   const applyReceiptPayload = (payload: ReceiptStatusPayload) => {
     const nextStatus = payload.status;
+    const nextResults = (payload.ocrResults ?? []).map((line) => ({
+      ...line,
+      mergeStrategy: line.mergeStrategy ?? line.defaultAction,
+      existingInventoryItemId: line.existingInventoryItemId ?? line.defaultMergeTargetId ?? null
+    }));
     setReceiptUploadId(payload.receiptUploadId);
     setWorkflowStatus(nextStatus);
     setRetailer(payload.retailer ?? "unknown");
-    setResults(payload.ocrResults ?? []);
-    mergeSelectedIds(payload.ocrResults ?? []);
+    setResults(nextResults);
+    mergeSelectedIds(nextResults);
 
     if (nextStatus === "FAILED") {
       setStatusTone("error");
@@ -256,7 +290,9 @@ export function ReceiptUploader() {
             extractedName: line.extractedName,
             extractedQuantity: line.extractedQuantity,
             extractedUnit: line.extractedUnit,
-            extractedPrice: line.extractedPrice
+            extractedPrice: line.extractedPrice,
+            mergeStrategy: line.mergeStrategy ?? line.defaultAction,
+            existingInventoryItemId: line.existingInventoryItemId ?? line.defaultMergeTargetId ?? null
           }))
         })
       });
@@ -267,7 +303,12 @@ export function ReceiptUploader() {
         return;
       }
 
-      const data = (await response.json()) as { addedCount: number; alreadyProcessed?: boolean };
+      const data = (await response.json()) as {
+        addedCount: number;
+        createdCount: number;
+        mergedCount: number;
+        alreadyProcessed?: boolean;
+      };
       if (data.alreadyProcessed) {
         setStatusTone("success");
         setStatus("Items added to inventory successfully.");
@@ -279,7 +320,7 @@ export function ReceiptUploader() {
       setStatusTone("success");
       setStatus(
         data.addedCount > 0
-          ? `Items added to inventory successfully. (${data.addedCount} items)`
+          ? `Inventory updated. ${data.createdCount} new item${data.createdCount === 1 ? "" : "s"}, ${data.mergedCount} merged.`
           : "Items added to inventory successfully."
       );
       setHasAddedToInventory(true);
@@ -304,14 +345,23 @@ export function ReceiptUploader() {
     setResults((current) => current.map((line) => (line.id === id ? updater(line) : line)));
   };
 
+  const setMergeChoice = (id: string, strategy: MergeStrategy, existingInventoryItemId: string | null) => {
+    updateLine(id, (current) => ({
+      ...current,
+      mergeStrategy: strategy,
+      existingInventoryItemId
+    }));
+  };
+
   const canReview = workflowStatus === "REVIEW_REQUIRED" || workflowStatus === "COMPLETED";
   const disableAddButton = hasAddedToInventory || isSubmittingSelection || selectedIds.length === 0;
+  const duplicateCount = results.filter((line) => line.duplicateCandidates.length > 0).length;
 
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Upload Receipt (Real OCR)</CardTitle>
+          <CardTitle>Scan a receipt into today&apos;s inventory</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={submit} className="space-y-3">
@@ -352,64 +402,132 @@ export function ReceiptUploader() {
           {results.length === 0 ? <p className="text-muted-foreground">No OCR results yet.</p> : null}
           {results.length > 0 ? (
             <>
+            <div className="grid grid-cols-2 gap-2 rounded-2xl border bg-muted/20 p-3 text-xs md:grid-cols-4">
+              <div>
+                <p className="font-medium uppercase tracking-wide text-muted-foreground">Lines</p>
+                <p className="mt-1 text-xl font-semibold text-foreground">{results.length}</p>
+              </div>
+              <div>
+                <p className="font-medium uppercase tracking-wide text-muted-foreground">Selected</p>
+                <p className="mt-1 text-xl font-semibold text-foreground">{selectedIds.length}</p>
+              </div>
+              <div>
+                <p className="font-medium uppercase tracking-wide text-muted-foreground">Duplicates</p>
+                <p className="mt-1 text-xl font-semibold text-foreground">{duplicateCount}</p>
+              </div>
+              <div>
+                <p className="font-medium uppercase tracking-wide text-muted-foreground">Mode</p>
+                <p className="mt-1 text-sm font-medium text-foreground">Review before save</p>
+              </div>
+            </div>
             <div className="space-y-3 md:hidden">
               {results.map((line) => (
-                <div key={line.id} className="rounded-lg border p-3">
-                  <label className="mb-2 inline-flex items-center gap-2 text-sm font-medium">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.includes(line.id)}
-                      onChange={() => toggleSelected(line.id)}
-                      aria-label={`Include ${line.extractedName}`}
-                    />
-                    Include item
-                  </label>
-                  <div className="grid grid-cols-1 gap-2">
-                    <label className="text-xs text-muted-foreground">Item Name</label>
+                <div key={line.id} className="rounded-2xl border bg-card p-3 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <label className="inline-flex items-center gap-2 text-sm font-medium">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(line.id)}
+                        onChange={() => toggleSelected(line.id)}
+                        aria-label={`Include ${line.extractedName}`}
+                      />
+                      Include item
+                    </label>
+                    <div className="flex flex-wrap justify-end gap-2 text-[11px]">
+                      <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground">{line.confidence != null ? `${Math.round(line.confidence * 100)}% confidence` : "No confidence"}</span>
+                      {line.duplicateCandidates.length > 0 ? <span className="rounded-full bg-primary/10 px-2 py-1 text-primary">Possible duplicate</span> : null}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-2">
+                    <label className="text-xs text-muted-foreground">Item name</label>
                     <input
                       value={line.extractedName}
                       onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedName: event.target.value }))}
                       className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                       disabled={!canReview}
                     />
-                    <label className="text-xs text-muted-foreground">Quantity</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={line.extractedQuantity ?? ""}
-                      onChange={(event) =>
-                        updateLine(line.id, (current) => ({
-                          ...current,
-                          extractedQuantity: event.target.value ? Number(event.target.value) : null
-                        }))
-                      }
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      disabled={!canReview}
-                    />
-                    <label className="text-xs text-muted-foreground">Unit</label>
-                    <input
-                      value={line.extractedUnit ?? ""}
-                      onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedUnit: event.target.value || null }))}
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      disabled={!canReview}
-                    />
-                    <label className="text-xs text-muted-foreground">Price</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={line.extractedPrice ?? ""}
-                      onChange={(event) =>
-                        updateLine(line.id, (current) => ({
-                          ...current,
-                          extractedPrice: event.target.value ? Number(event.target.value) : null
-                        }))
-                      }
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      disabled={!canReview}
-                    />
-                    <p className="text-xs text-muted-foreground">Confidence: {line.confidence != null ? line.confidence.toFixed(2) : "N/A"}</p>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-xs text-muted-foreground">Qty</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={line.extractedQuantity ?? ""}
+                          onChange={(event) =>
+                            updateLine(line.id, (current) => ({
+                              ...current,
+                              extractedQuantity: event.target.value ? Number(event.target.value) : null
+                            }))
+                          }
+                          className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          disabled={!canReview}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground">Unit</label>
+                        <input
+                          value={line.extractedUnit ?? ""}
+                          onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedUnit: event.target.value || null }))}
+                          className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          disabled={!canReview}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground">Price</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={line.extractedPrice ?? ""}
+                          onChange={(event) =>
+                            updateLine(line.id, (current) => ({
+                              ...current,
+                              extractedPrice: event.target.value ? Number(event.target.value) : null
+                            }))
+                          }
+                          className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          disabled={!canReview}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                      <p>
+                        Suggested: {formatCategoryLabel(line.suggestedCategory)} in {formatCategoryLabel(line.suggestedStorageLocation)}
+                      </p>
+                      <p className="mt-1">Suggested expiration: {formatSuggestedDate(line.suggestedExpirationDate)}</p>
+                    </div>
+
+                    {line.duplicateCandidates.length > 0 ? (
+                      <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+                        <p className="text-sm font-medium text-foreground">Possible duplicate found</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {line.duplicateCandidates[0]?.name} • {line.duplicateCandidates[0]?.quantity} {line.duplicateCandidates[0]?.unit} • {formatCategoryLabel(line.duplicateCandidates[0]?.storageLocation ?? "PANTRY")}
+                        </p>
+                        <div className="mt-2 flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={(line.mergeStrategy ?? line.defaultAction) === "MERGE" ? "default" : "outline"}
+                            onClick={() => setMergeChoice(line.id, "MERGE", line.duplicateCandidates[0]?.id ?? null)}
+                          >
+                            Merge into existing
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={(line.mergeStrategy ?? line.defaultAction) === "CREATE_NEW" ? "secondary" : "outline"}
+                            onClick={() => setMergeChoice(line.id, "CREATE_NEW", null)}
+                          >
+                            Keep separate
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+
                     <p className="text-xs font-medium">Status: {line.lineStatus}</p>
                     <p className="text-xs text-muted-foreground">Source: {line.rawLine ?? "N/A"}</p>
                   </div>
@@ -443,6 +561,30 @@ export function ReceiptUploader() {
                           disabled={!canReview}
                         />
                         <p className="mt-1 text-xs text-muted-foreground">Source: {line.rawLine ?? "N/A"}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Suggested: {formatCategoryLabel(line.suggestedCategory)} • {formatCategoryLabel(line.suggestedStorageLocation)} • {formatSuggestedDate(line.suggestedExpirationDate)}
+                        </p>
+                        {line.duplicateCandidates.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-medium text-primary">Possible duplicate: {line.duplicateCandidates[0]?.name}</span>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={(line.mergeStrategy ?? line.defaultAction) === "MERGE" ? "default" : "outline"}
+                              onClick={() => setMergeChoice(line.id, "MERGE", line.duplicateCandidates[0]?.id ?? null)}
+                            >
+                              Merge
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={(line.mergeStrategy ?? line.defaultAction) === "CREATE_NEW" ? "secondary" : "outline"}
+                              onClick={() => setMergeChoice(line.id, "CREATE_NEW", null)}
+                            >
+                              Separate
+                            </Button>
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2">
                         <input
@@ -497,6 +639,9 @@ export function ReceiptUploader() {
             <div className="sticky bottom-[max(env(safe-area-inset-bottom),0px)] flex flex-col gap-2 rounded-xl border bg-card/95 p-2 pt-2 backdrop-blur md:static md:border-0 md:bg-transparent md:p-0 md:flex-row">
               <Button className="w-full md:w-auto" variant="secondary" type="button" onClick={() => setSelectedIds(results.map((line) => line.id))}>
                 Select All
+              </Button>
+              <Button className="w-full md:w-auto" variant="outline" type="button" onClick={() => setSelectedIds([])}>
+                Clear Selection
               </Button>
               <Button className="w-full md:w-auto" type="button" onClick={addSelectedToInventory} disabled={disableAddButton} aria-label="Add selected items to inventory">
                 {hasAddedToInventory ? "Completed" : isSubmittingSelection ? "Adding..." : "Add Selected to Inventory"}
