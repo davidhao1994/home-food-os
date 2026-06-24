@@ -154,9 +154,11 @@ export async function POST(request: Request) {
     const done = await buildReceiptPayload(receipt.id);
     return jsonResponse(done, { status: 200 });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown OCR error";
+
     console.error("[receipt-ocr] OCR failed", {
       receiptUploadId: receipt.id,
-      message: error instanceof Error ? error.message : "Unknown OCR error"
+      message: errorMessage
     });
 
     await prisma.receiptUpload.update({
@@ -171,7 +173,7 @@ export async function POST(request: Request) {
     return jsonResponse(
       {
         ...failed,
-        error: "Receipt OCR failed. Please try a clearer image or upload again."
+        error: `Receipt OCR failed: ${errorMessage}`
       },
       { status: 422 }
     );

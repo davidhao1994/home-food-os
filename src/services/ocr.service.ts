@@ -14,10 +14,10 @@ export type ReceiptOcrOutput = {
   retailer: ReceiptRetailer;
   confidence: number | null;
   lines: Array<OcrExtractedLine & { lineStatus: OcrLineStatus }>;
-  provider: "ocr_space" | "tesseract" | "mock";
+  provider: "openai" | "ocr_space" | "tesseract" | "mock";
 };
 
-type ReceiptOcrProvider = "ocr_space" | "tesseract" | "mock";
+type ReceiptOcrProvider = "openai" | "ocr_space" | "tesseract" | "mock";
 
 type ReceiptRetailer = "costco" | "walmart" | "safeway" | "unknown";
 
@@ -38,11 +38,24 @@ const RECEIPT_LINE_BLACKLIST = [
 const UNIT_HINTS = ["lb", "lbs", "kg", "g", "oz", "ct", "pk", "ea", "pcs", "pc", "gal", "l"];
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_OPENAI_VISION_MODEL = "gpt-4o";
 const DEFAULT_MOCK_RAW_TEXT = [
   "EGGS LARGE 1 CT 4.99",
   "WHOLE MILK 1 GAL 4.49",
   "BANANAS 2 LB 1.98"
 ].join("\n");
+
+type OpenAIVisionItem = {
+  name?: unknown;
+  quantity?: unknown;
+  unit?: unknown;
+  price?: unknown;
+};
+
+type OpenAIVisionReceiptPayload = {
+  retailer?: unknown;
+  items?: unknown;
+};
 
 export async function enqueueReceiptProcessing(_receiptUploadId: string) {
   void _receiptUploadId;
@@ -237,19 +250,235 @@ function parseTimeoutMs() {
   return Math.max(3_000, Math.min(60_000, Math.trunc(configured)));
 }
 
-function resolveOcrProvider(): ReceiptOcrProvider {
-  const configured = process.env.RECEIPT_OCR_PROVIDER?.toLowerCase();
-  const hasOcrSpace = Boolean(process.env.OCR_SPACE_API_KEY);
+function sanitizeJsonText(rawContent: string) {
+  const trimmed = rawContent.trim();
+  if (!trimmed) {
+    return "";
+  }
 
-  if (configured === "ocr_space" || configured === "tesseract" || configured === "mock") {
-    return configured;
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced?.[1]) {
+    return fenced[1].trim();
+  }
+
+  return trimmed;
+}
+
+function toNumericOrNull(value: unknown) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/[^\d.-]/g, ""));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function toRetailer(value: unknown): ReceiptRetailer {
+  if (typeof value !== "string" || !value.trim()) {
+    return "unknown";
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "costco" || normalized === "walmart" || normalized === "safeway") {
+    return normalized;
+  }
+
+  return "unknown";
+}
+
+function toOpenAIVisionLines(items: OpenAIVisionItem[]) {
+  const lines: OcrExtractedLine[] = [];
+
+  for (const item of items) {
+    const name = typeof item.name === "string" ? cleanName(item.name) : "";
+    if (!name || name.length < 2 || !/[A-Za-z]/.test(name)) {
+      continue;
+    }
+
+    const quantity = toNumericOrNull(item.quantity);
+    const unit = typeof item.unit === "string" && item.unit.trim() ? item.unit.trim().toLowerCase() : "item";
+    const price = toNumericOrNull(item.price);
+
+    lines.push({
+      rawLine: `${name}${price != null ? ` ${price.toFixed(2)}` : ""}`,
+      extractedName: name,
+      extractedQuantity: quantity ?? 1,
+      extractedUnit: UNIT_HINTS.includes(unit) ? unit : unit === "item" ? "item" : "item",
+      extractedPrice: price ?? undefined,
+      confidence: undefined
+    });
+  }
+
+  return lines.slice(0, 80);
+}
+
+function parseOpenAIVisionJson(rawContent: string) {
+  const jsonText = sanitizeJsonText(rawContent);
+  if (!jsonText) {
+    throw new Error("OpenAI Vision returned an empty response");
+  }
+
+  let parsed: OpenAIVisionReceiptPayload;
+  try {
+    parsed = JSON.parse(jsonText) as OpenAIVisionReceiptPayload;
+  } catch {
+    throw new Error("OpenAI Vision returned invalid JSON");
+  }
+
+  const retailer = toRetailer(parsed.retailer);
+  const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
+  const items = rawItems.filter((item): item is OpenAIVisionItem => Boolean(item && typeof item === "object"));
+  const lines = toOpenAIVisionLines(items);
+
+  return {
+    retailer,
+    lines
+  };
+}
+
+function resolveOcrProvider(): ReceiptOcrProvider {
+  const configured = process.env.RECEIPT_OCR_PROVIDER?.toLowerCase().trim();
+  const hasOpenAi = Boolean(process.env.OPENAI_API_KEY);
+  const hasOcrSpace = Boolean(process.env.OCR_SPACE_API_KEY);
+  const isProduction = process.env.NODE_ENV === "production";
+
+  if (configured) {
+    if (configured === "openai" || configured === "ocr_space" || configured === "tesseract" || configured === "mock") {
+      if (configured === "mock" && isProduction) {
+        throw new Error("RECEIPT_OCR_PROVIDER=mock is not allowed in production. Configure OPENAI_API_KEY or OCR_SPACE_API_KEY.");
+      }
+
+      return configured;
+    }
+
+    throw new Error(
+      `Unsupported RECEIPT_OCR_PROVIDER value: ${configured}. Supported values: openai, ocr_space, tesseract, mock.`
+    );
+  }
+
+  if (hasOpenAi) {
+    return "openai";
   }
 
   if (hasOcrSpace) {
     return "ocr_space";
   }
 
-  return process.env.NODE_ENV === "development" ? "tesseract" : "mock";
+  if (!isProduction) {
+    return "tesseract";
+  }
+
+  throw new Error(
+    "No real OCR provider is configured. Set OPENAI_API_KEY or OCR_SPACE_API_KEY, or set RECEIPT_OCR_PROVIDER to openai, ocr_space, or tesseract."
+  );
+}
+
+async function runOpenAIVisionOcr(imageBase64: string): Promise<ReceiptOcrOutput> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is missing");
+  }
+
+  const normalizedBase64 = normalizeBase64(imageBase64);
+  if (!normalizedBase64) {
+    throw new Error("Receipt image is empty");
+  }
+
+  const model = process.env.OPENAI_VISION_MODEL?.trim() || DEFAULT_OPENAI_VISION_MODEL;
+  const prompt = [
+    "Extract this grocery receipt and return ONLY valid JSON.",
+    "Schema:",
+    "{",
+    '  "retailer": "",',
+    '  "items": [',
+    "    {",
+    '      "name": "",',
+    '      "quantity": 1,',
+    '      "unit": "",',
+    '      "price": 0',
+    "    }",
+    "  ]",
+    "}",
+    "Rules:",
+    "- Return JSON only, no markdown.",
+    "- Include only actual purchased line items.",
+    "- Exclude totals, tax, discounts, headers, and payment lines.",
+    "- If quantity/unit/price is missing, infer best-effort defaults: quantity=1, unit='item', price=0.",
+    "- Keep retailer empty string when unknown."
+  ].join("\n");
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: prompt
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:image/jpeg;base64,${normalizedBase64}`
+              }
+            }
+          ]
+        }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`OpenAI Vision HTTP ${response.status}${body ? `: ${body}` : ""}`);
+  }
+
+  const payload = (await response.json()) as {
+    choices?: Array<{
+      message?: {
+        content?: string | Array<{ type?: string; text?: string }>;
+      };
+    }>;
+  };
+
+  const messageContent = payload.choices?.[0]?.message?.content;
+  const content =
+    typeof messageContent === "string"
+      ? messageContent
+      : Array.isArray(messageContent)
+        ? messageContent
+            .map((part) => (part?.type === "text" && typeof part.text === "string" ? part.text : ""))
+            .join("\n")
+        : "";
+
+  const parsed = parseOpenAIVisionJson(content);
+  const retailer = parsed.retailer;
+  const lines = mapRawLinesToOcrResults(parsed.lines);
+  const rawText = [
+    `retailer: ${retailer}`,
+    ...parsed.lines.map((line) => `${line.extractedName} ${line.extractedQuantity ?? 1} ${line.extractedUnit ?? "item"}`)
+  ].join("\n");
+
+  return {
+    rawText,
+    retailer,
+    confidence: null,
+    lines,
+    provider: "openai"
+  };
 }
 
 async function runOcrSpaceOcr(imageBase64: string): Promise<ReceiptOcrOutput> {
@@ -363,7 +592,15 @@ export async function runReceiptOcrFromBase64(imageBase64: string): Promise<Rece
   const timeoutMs = parseTimeoutMs();
   const provider = resolveOcrProvider();
 
+  if (provider === "openai") {
+    return withTimeout(runOpenAIVisionOcr(imageBase64), timeoutMs, "OpenAI Vision OCR");
+  }
+
   if (provider === "mock") {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Mock OCR is not allowed in production. Configure a real OCR provider.");
+    }
+
     return buildMockReceiptOcrResult();
   }
 
