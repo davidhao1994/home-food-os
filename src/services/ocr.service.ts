@@ -9,17 +9,26 @@ export type OcrExtractedLine = {
   confidence?: number;
 };
 
-export type ReceiptOcrOutput = {
-  rawText: string;
-  retailer: ReceiptRetailer;
-  confidence: number | null;
-  lines: Array<OcrExtractedLine & { lineStatus: OcrLineStatus }>;
-  provider: "openai" | "ocr_space" | "tesseract" | "mock";
+export type ReceiptItem = {
+  name: string;
+  quantity: number;
+  unit: string;
+  price: number | null;
 };
 
-type ReceiptOcrProvider = "openai" | "ocr_space" | "tesseract" | "mock";
+export type ReceiptOcrOutput = {
+  rawText: string;
+  retailer: string;
+  purchaseDate: string | null;
+  items: ReceiptItem[];
+  confidence: number | null;
+  lines: Array<OcrExtractedLine & { lineStatus: OcrLineStatus }>;
+  provider: "gemini" | "ocr_space" | "tesseract" | "mock";
+};
 
-type ReceiptRetailer = "costco" | "walmart" | "safeway" | "unknown";
+type ReceiptOcrProvider = "gemini" | "ocr_space" | "tesseract" | "mock";
+
+type ReceiptRetailer = string;
 
 const RECEIPT_LINE_BLACKLIST = [
   /subtotal/i,
@@ -38,22 +47,22 @@ const RECEIPT_LINE_BLACKLIST = [
 const UNIT_HINTS = ["lb", "lbs", "kg", "g", "oz", "ct", "pk", "ea", "pcs", "pc", "gal", "l"];
 
 const DEFAULT_TIMEOUT_MS = 15_000;
-const DEFAULT_OPENAI_VISION_MODEL = "gpt-4o";
 const DEFAULT_MOCK_RAW_TEXT = [
   "EGGS LARGE 1 CT 4.99",
   "WHOLE MILK 1 GAL 4.49",
   "BANANAS 2 LB 1.98"
 ].join("\n");
 
-type OpenAIVisionItem = {
+type GeminiReceiptItem = {
   name?: unknown;
   quantity?: unknown;
   unit?: unknown;
   price?: unknown;
 };
 
-type OpenAIVisionReceiptPayload = {
-  retailer?: unknown;
+type GeminiReceiptPayload = {
+  merchantName?: unknown;
+  purchaseDate?: unknown;
   items?: unknown;
 };
 
@@ -99,6 +108,25 @@ function normalizeBase64(imageBase64: string) {
   }
 
   return trimmed.split(",")[1] ?? "";
+}
+
+function normalizeBase64Image(imageBase64: string) {
+  const trimmed = imageBase64.trim();
+  if (!trimmed) {
+    return { base64: "", mimeType: "image/jpeg" };
+  }
+
+  if (!trimmed.includes(",")) {
+    return { base64: trimmed, mimeType: "image/jpeg" };
+  }
+
+  const [prefix, encoded] = trimmed.split(",", 2);
+  const mimeTypeMatch = prefix?.match(/^data:([^;]+);base64$/i);
+
+  return {
+    base64: encoded ?? "",
+    mimeType: mimeTypeMatch?.[1] ?? "image/jpeg"
+  };
 }
 
 function toConfidenceFraction(rawConfidence: number | null | undefined) {
@@ -277,21 +305,17 @@ function toNumericOrNull(value: unknown) {
   return null;
 }
 
-function toRetailer(value: unknown): ReceiptRetailer {
-  if (typeof value !== "string" || !value.trim()) {
-    return "unknown";
+function toTextOrNull(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
   }
 
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "costco" || normalized === "walmart" || normalized === "safeway") {
-    return normalized;
-  }
-
-  return "unknown";
+  const trimmed = value.trim();
+  return trimmed || null;
 }
 
-function toOpenAIVisionLines(items: OpenAIVisionItem[]) {
-  const lines: OcrExtractedLine[] = [];
+function toReceiptItems(items: GeminiReceiptItem[]) {
+  const parsed: ReceiptItem[] = [];
 
   for (const item of items) {
     const name = typeof item.name === "string" ? cleanName(item.name) : "";
@@ -303,12 +327,34 @@ function toOpenAIVisionLines(items: OpenAIVisionItem[]) {
     const unit = typeof item.unit === "string" && item.unit.trim() ? item.unit.trim().toLowerCase() : "item";
     const price = toNumericOrNull(item.price);
 
+    parsed.push({
+      name,
+      quantity: quantity && quantity > 0 ? quantity : 1,
+      unit,
+      price
+    });
+  }
+
+  return parsed.slice(0, 80);
+}
+
+function toGeminiVisionLines(items: ReceiptItem[]) {
+  const lines: OcrExtractedLine[] = [];
+
+  for (const item of items) {
     lines.push({
-      rawLine: `${name}${price != null ? ` ${price.toFixed(2)}` : ""}`,
-      extractedName: name,
-      extractedQuantity: quantity ?? 1,
-      extractedUnit: UNIT_HINTS.includes(unit) ? unit : unit === "item" ? "item" : "item",
-      extractedPrice: price ?? undefined,
+      rawLine: [
+        item.name,
+        item.quantity !== 1 ? String(item.quantity) : null,
+        item.unit && item.unit !== "item" ? item.unit : null,
+        item.price != null ? item.price.toFixed(2) : null
+      ]
+        .filter((part): part is string => Boolean(part))
+        .join(" "),
+      extractedName: item.name,
+      extractedQuantity: item.quantity,
+      extractedUnit: UNIT_HINTS.includes(item.unit) ? item.unit : "item",
+      extractedPrice: item.price ?? undefined,
       confidence: undefined
     });
   }
@@ -316,52 +362,69 @@ function toOpenAIVisionLines(items: OpenAIVisionItem[]) {
   return lines.slice(0, 80);
 }
 
-function parseOpenAIVisionJson(rawContent: string) {
+function parseGeminiVisionJson(rawContent: string) {
   const jsonText = sanitizeJsonText(rawContent);
   if (!jsonText) {
-    throw new Error("OpenAI Vision returned an empty response");
+    throw new Error("Gemini Vision returned an empty response");
   }
 
-  let parsed: OpenAIVisionReceiptPayload;
+  let parsed: GeminiReceiptPayload;
   try {
-    parsed = JSON.parse(jsonText) as OpenAIVisionReceiptPayload;
+    parsed = JSON.parse(jsonText) as GeminiReceiptPayload;
   } catch {
-    throw new Error("OpenAI Vision returned invalid JSON");
+    throw new Error("Gemini Vision returned invalid JSON");
   }
 
-  const retailer = toRetailer(parsed.retailer);
+  const merchantName = toTextOrNull(parsed.merchantName) ?? "unknown";
+  const purchaseDate = toTextOrNull(parsed.purchaseDate);
   const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
-  const items = rawItems.filter((item): item is OpenAIVisionItem => Boolean(item && typeof item === "object"));
-  const lines = toOpenAIVisionLines(items);
+  const items = rawItems.filter((item): item is GeminiReceiptItem => Boolean(item && typeof item === "object"));
+  const parsedItems = toReceiptItems(items);
+  const lines = toGeminiVisionLines(parsedItems);
 
   return {
-    retailer,
-    lines
+    merchantName,
+    purchaseDate,
+    items: parsedItems,
+    lines,
+    rawText: JSON.stringify(
+      {
+        merchantName,
+        purchaseDate,
+        items: parsedItems
+      },
+      null,
+      2
+    )
   };
 }
 
 function resolveOcrProvider(): ReceiptOcrProvider {
   const configured = process.env.RECEIPT_OCR_PROVIDER?.toLowerCase().trim();
-  const hasOpenAi = Boolean(process.env.OPENAI_API_KEY);
+  const hasGemini = Boolean(process.env.GEMINI_API_KEY);
   const hasOcrSpace = Boolean(process.env.OCR_SPACE_API_KEY);
   const isProduction = process.env.NODE_ENV === "production";
 
   if (configured) {
-    if (configured === "openai" || configured === "ocr_space" || configured === "tesseract" || configured === "mock") {
+    if (configured === "gemini" || configured === "ocr_space" || configured === "tesseract" || configured === "mock") {
       if (configured === "mock" && isProduction) {
-        throw new Error("RECEIPT_OCR_PROVIDER=mock is not allowed in production. Configure OPENAI_API_KEY or OCR_SPACE_API_KEY.");
+        throw new Error("RECEIPT_OCR_PROVIDER=mock is not allowed in production. Configure GEMINI_API_KEY or OCR_SPACE_API_KEY.");
+      }
+
+      if (configured === "gemini" && !hasGemini) {
+        throw new Error("RECEIPT_OCR_PROVIDER=gemini requires GEMINI_API_KEY.");
       }
 
       return configured;
     }
 
     throw new Error(
-      `Unsupported RECEIPT_OCR_PROVIDER value: ${configured}. Supported values: openai, ocr_space, tesseract, mock.`
+      `Unsupported RECEIPT_OCR_PROVIDER value: ${configured}. Supported values: gemini, ocr_space, tesseract, mock.`
     );
   }
 
-  if (hasOpenAi) {
-    return "openai";
+  if (hasGemini) {
+    return "gemini";
   }
 
   if (hasOcrSpace) {
@@ -373,33 +436,34 @@ function resolveOcrProvider(): ReceiptOcrProvider {
   }
 
   throw new Error(
-    "No real OCR provider is configured. Set OPENAI_API_KEY or OCR_SPACE_API_KEY, or set RECEIPT_OCR_PROVIDER to openai, ocr_space, or tesseract."
+    "No real OCR provider is configured. Set GEMINI_API_KEY or OCR_SPACE_API_KEY, or set RECEIPT_OCR_PROVIDER to gemini, ocr_space, or tesseract."
   );
 }
 
-async function runOpenAIVisionOcr(imageBase64: string): Promise<ReceiptOcrOutput> {
-  const apiKey = process.env.OPENAI_API_KEY;
+async function runGeminiVisionOcr(imageBase64: string): Promise<ReceiptOcrOutput> {
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is missing");
+    throw new Error("GEMINI_API_KEY is missing");
   }
 
-  const normalizedBase64 = normalizeBase64(imageBase64);
+  const normalizedImage = normalizeBase64Image(imageBase64);
+  const normalizedBase64 = normalizedImage.base64;
   if (!normalizedBase64) {
     throw new Error("Receipt image is empty");
   }
 
-  const model = process.env.OPENAI_VISION_MODEL?.trim() || DEFAULT_OPENAI_VISION_MODEL;
   const prompt = [
-    "Extract this grocery receipt and return ONLY valid JSON.",
+    "Extract this receipt and return ONLY valid JSON.",
     "Schema:",
     "{",
-    '  "retailer": "",',
+    '  "merchantName": "",',
+    '  "purchaseDate": null,',
     '  "items": [',
     "    {",
     '      "name": "",',
     '      "quantity": 1,',
     '      "unit": "",',
-    '      "price": 0',
+    '      "price": null',
     "    }",
     "  ]",
     "}",
@@ -407,32 +471,34 @@ async function runOpenAIVisionOcr(imageBase64: string): Promise<ReceiptOcrOutput
     "- Return JSON only, no markdown.",
     "- Include only actual purchased line items.",
     "- Exclude totals, tax, discounts, headers, and payment lines.",
-    "- If quantity/unit/price is missing, infer best-effort defaults: quantity=1, unit='item', price=0.",
-    "- Keep retailer empty string when unknown."
+    "- If quantity is missing, use 1.",
+    "- If unit is missing, use 'item'.",
+    "- If price is missing, use null.",
+    "- Keep merchantName empty string when unknown.",
+    "- Use an ISO-like date string for purchaseDate when available, otherwise null."
   ].join("\n");
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model,
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
+      generationConfig: {
+        temperature: 0,
+        responseMimeType: "application/json"
+      },
+      contents: [
         {
           role: "user",
-          content: [
+          parts: [
             {
-              type: "text",
               text: prompt
             },
             {
-              type: "image_url",
-              image_url: {
-                url: `data:image/jpeg;base64,${normalizedBase64}`
+              inlineData: {
+                mimeType: normalizedImage.mimeType,
+                data: normalizedBase64
               }
             }
           ]
@@ -443,41 +509,47 @@ async function runOpenAIVisionOcr(imageBase64: string): Promise<ReceiptOcrOutput
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new Error(`OpenAI Vision HTTP ${response.status}${body ? `: ${body}` : ""}`);
+    throw new Error(`Gemini Vision HTTP ${response.status}${body ? `: ${body}` : ""}`);
   }
 
   const payload = (await response.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string | Array<{ type?: string; text?: string }>;
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{
+          text?: string;
+        }>;
       };
+      finishReason?: string;
     }>;
+    promptFeedback?: {
+      blockReason?: string;
+      blockReasonMessage?: string;
+    };
   };
 
-  const messageContent = payload.choices?.[0]?.message?.content;
-  const content =
-    typeof messageContent === "string"
-      ? messageContent
-      : Array.isArray(messageContent)
-        ? messageContent
-            .map((part) => (part?.type === "text" && typeof part.text === "string" ? part.text : ""))
-            .join("\n")
-        : "";
+  const candidate = payload.candidates?.[0];
+  if (!candidate) {
+    const blockedMessage = payload.promptFeedback?.blockReasonMessage;
+    throw new Error(blockedMessage || "Gemini Vision returned no candidates");
+  }
 
-  const parsed = parseOpenAIVisionJson(content);
-  const retailer = parsed.retailer;
+  if (candidate.finishReason && candidate.finishReason !== "STOP") {
+    throw new Error(`Gemini Vision stopped with finish reason: ${candidate.finishReason}`);
+  }
+
+  const content = candidate.content?.parts?.map((part) => part.text ?? "").join("\n") ?? "";
+
+  const parsed = parseGeminiVisionJson(content);
   const lines = mapRawLinesToOcrResults(parsed.lines);
-  const rawText = [
-    `retailer: ${retailer}`,
-    ...parsed.lines.map((line) => `${line.extractedName} ${line.extractedQuantity ?? 1} ${line.extractedUnit ?? "item"}`)
-  ].join("\n");
 
   return {
-    rawText,
-    retailer,
+    rawText: parsed.rawText,
+    retailer: parsed.merchantName,
+    purchaseDate: parsed.purchaseDate,
+    items: parsed.items,
     confidence: null,
     lines,
-    provider: "openai"
+    provider: "gemini"
   };
 }
 
@@ -531,6 +603,13 @@ async function runOcrSpaceOcr(imageBase64: string): Promise<ReceiptOcrOutput> {
   return {
     rawText,
     retailer,
+    purchaseDate: null,
+    items: parsedLines.map((line) => ({
+      name: line.extractedName,
+      quantity: line.extractedQuantity ?? 1,
+      unit: line.extractedUnit ?? "item",
+      price: line.extractedPrice ?? null
+    })),
     confidence: 0.8,
     lines: mapRawLinesToOcrResults(parsedLines),
     provider: "ocr_space"
@@ -562,6 +641,13 @@ async function runTesseractOcr(imageBase64: string): Promise<ReceiptOcrOutput> {
     return {
       rawText,
       retailer,
+      purchaseDate: null,
+      items: parsedLines.map((line) => ({
+        name: line.extractedName,
+        quantity: line.extractedQuantity ?? 1,
+        unit: line.extractedUnit ?? "item",
+        price: line.extractedPrice ?? null
+      })),
       confidence: normalizedConfidence,
       lines: mapRawLinesToOcrResults(parsedLines),
       provider: "tesseract"
@@ -582,6 +668,13 @@ export function buildMockReceiptOcrResult() {
   return {
     rawText,
     retailer,
+    purchaseDate: null,
+    items: parsedLines.map((line) => ({
+      name: line.extractedName,
+      quantity: line.extractedQuantity ?? 1,
+      unit: line.extractedUnit ?? "item",
+      price: line.extractedPrice ?? null
+    })),
     confidence: 0.65,
     lines: mapRawLinesToOcrResults(parsedLines),
     provider: "mock" as const
@@ -592,8 +685,8 @@ export async function runReceiptOcrFromBase64(imageBase64: string): Promise<Rece
   const timeoutMs = parseTimeoutMs();
   const provider = resolveOcrProvider();
 
-  if (provider === "openai") {
-    return withTimeout(runOpenAIVisionOcr(imageBase64), timeoutMs, "OpenAI Vision OCR");
+  if (provider === "gemini") {
+    return withTimeout(runGeminiVisionOcr(imageBase64), timeoutMs, "Gemini Vision OCR");
   }
 
   if (provider === "mock") {

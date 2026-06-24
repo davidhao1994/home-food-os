@@ -72,8 +72,8 @@ Detailed guide: `docs/SUPABASE_SETUP.md`
 ## Notes
 
 - Receipt scanner now uses a reliable upload-process-status flow with timeout-safe OCR states.
-- OCR provider selection supports OpenAI Vision (`OPENAI_API_KEY`) and OCR.Space (`OCR_SPACE_API_KEY`) via `RECEIPT_OCR_PROVIDER`.
-- If `RECEIPT_OCR_PROVIDER` is not set and `OPENAI_API_KEY` is present, OpenAI Vision is selected by default.
+- OCR provider selection supports Gemini Vision (`GEMINI_API_KEY`) and OCR.Space (`OCR_SPACE_API_KEY`) via `RECEIPT_OCR_PROVIDER`.
+- If `RECEIPT_OCR_PROVIDER` is not set and `GEMINI_API_KEY` is present, Gemini Vision is selected by default.
 - Production never defaults to mock OCR. If no real OCR provider is configured, receipt processing fails with a clear configuration error.
 - AI assistant uses mock responses and a prompt template layer.
 - Family sharing schema is included (`households`, `household_members`) for future expansion.

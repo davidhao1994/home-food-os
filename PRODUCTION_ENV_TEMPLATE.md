@@ -15,6 +15,10 @@ SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
 # App URL
 NEXT_PUBLIC_APP_URL="https://your-vercel-domain.vercel.app"
 
+# OCR Provider
+RECEIPT_OCR_PROVIDER="gemini"
+GEMINI_API_KEY="your-gemini-api-key"
+
 # Feature Flags
 # false for normal production auth, true only for Family Demo deployment
 NEXT_PUBLIC_FAMILY_DEMO_MODE="false"
