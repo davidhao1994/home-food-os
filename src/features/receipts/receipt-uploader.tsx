@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useUiStore } from "@/store/ui-store";
 import { formatCategoryLabel } from "@/utils/food";
 
 type ReceiptWorkflowStatus = "UPLOADED" | "PROCESSING" | "REVIEW_REQUIRED" | "COMPLETED" | "FAILED";
@@ -25,6 +26,13 @@ type OcrItem = {
   id: string;
   rawLine: string | null;
   extractedName: string;
+  rawName?: string;
+  normalizedName?: string;
+  displayName?: string;
+  displayNameZh?: string;
+  aliases?: string[];
+  needsReview?: boolean;
+  normalizationConfidence?: number;
   extractedQuantity: number | null;
   extractedUnit: string | null;
   extractedPrice: number | null;
@@ -47,6 +55,17 @@ type ReceiptStatusPayload = {
   ocrResults: OcrItem[];
   error?: string;
 };
+
+type ReceiptCorrectionStore = Record<
+  string,
+  {
+    displayName: string;
+    displayNameZh?: string;
+    category?: string;
+  }
+>;
+
+const RECEIPT_CORRECTIONS_STORAGE_KEY = "home-food-os-receipt-corrections-v1";
 
 const TERMINAL_STATUSES: ReceiptWorkflowStatus[] = ["REVIEW_REQUIRED", "COMPLETED", "FAILED"];
 
@@ -79,6 +98,7 @@ function formatSuggestedDate(value: string | null) {
 }
 
 export function ReceiptUploader() {
+  const language = useUiStore((state) => state.language);
   const searchParams = useSearchParams();
   const [file, setFile] = useState<File | null>(null);
   const [receiptUploadId, setReceiptUploadId] = useState("");
@@ -91,6 +111,7 @@ export function ReceiptUploader() {
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmittingSelection, setIsSubmittingSelection] = useState(false);
   const [hasAddedToInventory, setHasAddedToInventory] = useState(false);
+  const [corrections, setCorrections] = useState<ReceiptCorrectionStore>({});
   const [isMobile, setIsMobile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const hasAutoPromptedRef = useRef(false);
@@ -103,6 +124,32 @@ export function ReceiptUploader() {
       pollTimerRef.current = null;
     }
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const stored = localStorage.getItem(RECEIPT_CORRECTIONS_STORAGE_KEY);
+    if (!stored) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(stored) as ReceiptCorrectionStore;
+      setCorrections(parsed);
+    } catch {
+      setCorrections({});
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    localStorage.setItem(RECEIPT_CORRECTIONS_STORAGE_KEY, JSON.stringify(corrections));
+  }, [corrections]);
 
   useEffect(() => {
     return () => {
@@ -146,11 +193,20 @@ export function ReceiptUploader() {
 
   const applyReceiptPayload = (payload: ReceiptStatusPayload) => {
     const nextStatus = payload.status;
-    const nextResults = (payload.ocrResults ?? []).map((line) => ({
-      ...line,
-      mergeStrategy: line.mergeStrategy ?? line.defaultAction,
-      existingInventoryItemId: line.existingInventoryItemId ?? line.defaultMergeTargetId ?? null
-    }));
+    const nextResults = (payload.ocrResults ?? []).map((line) => {
+      const correctionKey = (line.rawName ?? line.rawLine ?? line.extractedName ?? "").trim().toLowerCase();
+      const learned = correctionKey ? corrections[correctionKey] : undefined;
+
+      return {
+        ...line,
+        extractedName: learned?.displayName ?? line.extractedName,
+        displayName: learned?.displayName ?? line.displayName,
+        displayNameZh: learned?.displayNameZh ?? line.displayNameZh,
+        suggestedCategory: learned?.category ?? line.suggestedCategory,
+        mergeStrategy: line.mergeStrategy ?? line.defaultAction,
+        existingInventoryItemId: line.existingInventoryItemId ?? line.defaultMergeTargetId ?? null
+      };
+    });
     setReceiptUploadId(payload.receiptUploadId);
     setWorkflowStatus(nextStatus);
     setRetailer(payload.retailer ?? "unknown");
@@ -385,6 +441,22 @@ export function ReceiptUploader() {
     setResults((current) => current.map((line) => (line.id === id ? updater(line) : line)));
   };
 
+  const saveCorrection = (line: OcrItem) => {
+    const key = (line.rawName ?? line.rawLine ?? line.extractedName).trim().toLowerCase();
+    if (!key) {
+      return;
+    }
+
+    setCorrections((current) => ({
+      ...current,
+      [key]: {
+        displayName: line.extractedName.trim() || line.extractedName,
+        displayNameZh: line.displayNameZh,
+        category: line.suggestedCategory
+      }
+    }));
+  };
+
   const setMergeChoice = (id: string, strategy: MergeStrategy, existingInventoryItemId: string | null) => {
     updateLine(id, (current) => ({
       ...current,
@@ -488,12 +560,19 @@ export function ReceiptUploader() {
                       Include item
                     </label>
                     <div className="flex flex-wrap justify-end gap-2 text-[11px]">
-                      <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground">{line.confidence != null ? `${Math.round(line.confidence * 100)}% confidence` : "No confidence"}</span>
+                      <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground">
+                        {line.confidence != null ? `${Math.round(line.confidence * 100)}% confidence` : "No confidence"}
+                      </span>
+                      {line.needsReview ? <span className="rounded-full bg-warning/15 px-2 py-1 text-warning">Needs Review</span> : null}
                       {line.duplicateCandidates.length > 0 ? <span className="rounded-full bg-primary/10 px-2 py-1 text-primary">Possible duplicate</span> : null}
                     </div>
                   </div>
 
                   <div className="mt-3 grid grid-cols-1 gap-2">
+                    <div className="rounded-xl border bg-muted/20 px-3 py-2">
+                      <p className="text-sm font-semibold text-foreground">{language === "zh" ? line.displayNameZh || line.displayName || line.extractedName : line.displayName || line.extractedName}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Original: {line.rawName ?? line.rawLine ?? "N/A"}</p>
+                    </div>
                     <label className="text-xs text-muted-foreground">Item name</label>
                     <input
                       value={line.extractedName}
@@ -553,6 +632,7 @@ export function ReceiptUploader() {
                         Suggested: {formatCategoryLabel(line.suggestedCategory)} in {formatCategoryLabel(line.suggestedStorageLocation)}
                       </p>
                       <p className="mt-1">Suggested expiration: {formatSuggestedDate(line.suggestedExpirationDate)}</p>
+                      <p className="mt-1">Normalization confidence: {Math.round((line.normalizationConfidence ?? line.confidence ?? 0) * 100)}%</p>
                     </div>
 
                     {line.duplicateCandidates.length > 0 ? (
@@ -582,7 +662,12 @@ export function ReceiptUploader() {
                       </div>
                     ) : null}
 
-                    <p className="text-xs font-medium">Status: {line.lineStatus}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <p className="text-xs font-medium">Status: {line.lineStatus}</p>
+                      <Button type="button" size="sm" variant="outline" onClick={() => saveCorrection(line)}>
+                        This is actually...
+                      </Button>
+                    </div>
                     <p className="text-xs text-muted-foreground">Source: {line.rawLine ?? "N/A"}</p>
                   </div>
                 </div>
@@ -608,6 +693,9 @@ export function ReceiptUploader() {
                         <input type="checkbox" checked={selectedIds.includes(line.id)} onChange={() => toggleSelected(line.id)} />
                       </td>
                       <td className="px-3 py-2">
+                        <p className="mb-1 text-xs font-medium text-foreground">
+                          {language === "zh" ? line.displayNameZh || line.displayName || line.extractedName : line.displayName || line.extractedName}
+                        </p>
                         <input
                           value={line.extractedName}
                           onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedName: event.target.value }))}
@@ -615,6 +703,7 @@ export function ReceiptUploader() {
                           disabled={!canReview}
                         />
                         <p className="mt-1 text-xs text-muted-foreground">Source: {line.rawLine ?? "N/A"}</p>
+                        {line.needsReview ? <p className="mt-1 text-xs font-medium text-warning">Needs Review</p> : null}
                         <p className="mt-1 text-xs text-muted-foreground">
                           Suggested: {formatCategoryLabel(line.suggestedCategory)} • {formatCategoryLabel(line.suggestedStorageLocation)} • {formatSuggestedDate(line.suggestedExpirationDate)}
                         </p>
@@ -680,7 +769,10 @@ export function ReceiptUploader() {
                           disabled={!canReview}
                         />
                       </td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">{line.confidence != null ? line.confidence.toFixed(2) : "N/A"}</td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">
+                        {line.confidence != null ? line.confidence.toFixed(2) : "N/A"}
+                        {line.needsReview ? <span className="mt-1 block font-medium text-warning">Needs Review</span> : null}
+                      </td>
                       <td className="px-3 py-2 text-xs font-medium">{line.lineStatus}</td>
                     </tr>
                   ))}

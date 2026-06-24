@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { normalizeReceiptItemName } from "@/services/grocery-normalization";
 import { useUiStore } from "@/store/ui-store";
 import {
   formatCategoryLabel,
@@ -86,6 +87,23 @@ function createDefaultForm(category: ItemCategory = "OTHER", purchaseDate = DEFA
   };
 }
 
+function parseReceiptRawFromNotes(notes: string | null) {
+  if (!notes) {
+    return null;
+  }
+
+  const line = notes
+    .split(/\r?\n/)
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("OCR_RAW:"));
+
+  if (!line) {
+    return null;
+  }
+
+  return line.replace(/^OCR_RAW:\s*/i, "").trim() || null;
+}
+
 export function InventoryView({ initialItems }: Props) {
   const searchParams = useSearchParams();
   const [items, setItems] = useState(initialItems);
@@ -96,7 +114,7 @@ export function InventoryView({ initialItems }: Props) {
   const [locationFilter, setLocationFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState<"name" | "expiration">("expiration");
   const expiringFilterOn = searchParams.get("filter") === "expiring";
-  const { inventoryView, search, setInventoryView, setSearch } = useUiStore();
+  const { inventoryView, search, setInventoryView, setSearch, language } = useUiStore();
   const categoryDefaults = getFoodCategoryDefaults(form.category);
   const suggestedExpirationDate = formatDateInput(getSuggestedExpirationDate(form.category, parseDateInput(form.purchaseDate)));
 
@@ -123,6 +141,29 @@ export function InventoryView({ initialItems }: Props) {
         return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime();
       });
   }, [items, categoryFilter, locationFilter, expiringFilterOn, search, sortBy]);
+
+  const readableNamesById = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        primaryName: string;
+        rawName: string | null;
+      }
+    >();
+
+    for (const item of items) {
+      const rawName = parseReceiptRawFromNotes(item.notes);
+      const normalized = normalizeReceiptItemName(rawName || item.name);
+      const primaryName = language === "zh" ? normalized.displayNameZh || normalized.displayName : normalized.displayName;
+
+      map.set(item.id, {
+        primaryName: primaryName || item.name,
+        rawName
+      });
+    }
+
+    return map;
+  }, [items, language]);
 
   const resetForm = () => {
     setEditingId(null);
@@ -312,7 +353,10 @@ export function InventoryView({ initialItems }: Props) {
             return (
               <Card key={item.id}>
                 <CardHeader>
-                  <CardTitle className="text-lg">{item.name}</CardTitle>
+                  <CardTitle className="text-lg">{readableNamesById.get(item.id)?.primaryName || item.name}</CardTitle>
+                  {readableNamesById.get(item.id)?.rawName ? (
+                    <p className="text-xs text-muted-foreground">({readableNamesById.get(item.id)?.rawName})</p>
+                  ) : null}
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   <p>
@@ -366,7 +410,12 @@ export function InventoryView({ initialItems }: Props) {
               <tbody>
                 {filtered.map((item) => (
                   <tr key={item.id} className="border-t">
-                    <td className="p-3">{item.name}</td>
+                    <td className="p-3">
+                      <p className="font-medium">{readableNamesById.get(item.id)?.primaryName || item.name}</p>
+                      {readableNamesById.get(item.id)?.rawName ? (
+                        <p className="text-xs text-muted-foreground">({readableNamesById.get(item.id)?.rawName})</p>
+                      ) : null}
+                    </td>
                     <td className="p-3">
                       {item.quantity} {item.unit}
                     </td>

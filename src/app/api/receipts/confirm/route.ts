@@ -36,6 +36,22 @@ function chooseSoonerDate(left: Date | null, right: Date | null) {
   return left.getTime() <= right.getTime() ? left : right;
 }
 
+function buildReceiptImportNotes(input: {
+  existingNotes?: string | null;
+  retailer?: string | null;
+  receiptId: string;
+  rawLine?: string | null;
+  extractedName: string;
+}) {
+  const segments = [
+    `${input.existingNotes ? `${input.existingNotes}\n` : ""}Added from ${input.retailer ?? "receipt"} receipt ${input.receiptId}`,
+    input.rawLine ? `OCR_RAW: ${input.rawLine}` : null,
+    `OCR_NORMALIZED: ${input.extractedName}`
+  ].filter((value): value is string => Boolean(value));
+
+  return segments.join("\n");
+}
+
 export async function POST(request: Request) {
   const user = await requireUser();
   const householdId = await resolveHouseholdIdForUser(user.id);
@@ -166,7 +182,13 @@ export async function POST(request: Request) {
             unitPrice: price ?? mergeTarget.unitPrice,
             purchaseDate: new Date(),
             expirationDate: nextExpirationDate,
-            notes: `${mergeTarget.notes ? `${mergeTarget.notes}\n` : ""}Merged from ${receipt.retailer ?? "receipt"} receipt ${receipt.id}`
+            notes: buildReceiptImportNotes({
+              existingNotes: mergeTarget.notes,
+              retailer: receipt.retailer,
+              receiptId: receipt.id,
+              rawLine: line.rawLine,
+              extractedName: name
+            })
           }
         });
 
@@ -186,7 +208,12 @@ export async function POST(request: Request) {
         storageLocation: details.storageLocation,
         purchaseDate: new Date(),
         expirationDate: suggestedExpirationDate,
-        notes: `Added from ${receipt.retailer ?? "receipt"} receipt ${receipt.id}`
+        notes: buildReceiptImportNotes({
+          retailer: receipt.retailer,
+          receiptId: receipt.id,
+          rawLine: line.rawLine,
+          extractedName: name
+        })
       });
       createdCount += 1;
     }

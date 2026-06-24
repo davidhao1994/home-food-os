@@ -33,10 +33,26 @@ export type RecipeRecommendation = {
   name: string;
   matchScore: number;
   ingredientMatchPercent: number;
+  source?: "BUILT_IN" | "USER" | "IMPORTED" | "FAMILY_FAVORITES";
+  mealType?: "breakfast" | "lunch" | "dinner" | "snack";
+  difficulty?: "easy" | "medium" | "hard";
+  proteinType?: "chicken" | "beef" | "pork" | "seafood" | "tofu" | "egg" | "plant" | "mixed";
+  dietaryTags?: string[];
   missingIngredients: string[];
   missingIngredientsDetailed: RecipeMissingIngredient[];
   matchedIngredients: string[];
   reason: string;
+  scoreBreakdown?: {
+    inventoryMatch: number;
+    expiringIngredientMatch: number;
+    userPreference: number;
+    varietyScore: number;
+    mealTypeMatch: number;
+    missingPenalty: number;
+    favoriteBoost: number;
+    recentPenalty: number;
+    randomJitter: number;
+  };
   estimatedCalories: number | null;
   estimatedProtein: number | null;
   estimatedFat: number | null;

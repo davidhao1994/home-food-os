@@ -17,7 +17,7 @@ export default async function RecipesPage() {
 
   return (
     <div>
-      <PageHeader title="Smart Recipe Recommendations" subtitle="Filter by cuisine, cook time, and protein target with ingredient match scoring." />
+      <PageHeader title="Smart Recipe Recommendations" subtitle="Weighted scoring with diversity refresh, preference actions, and recipe library source management." />
       <RecommendationQueryView initialRecommendations={recommendations} />
     </div>
   );

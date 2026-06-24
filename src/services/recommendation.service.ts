@@ -6,9 +6,151 @@ type RecipeWithIngredients = Recipe & { ingredients: RecipeIngredient[] };
 
 type RecommendationOptions = {
   cuisine?: string;
+  mealType?: "breakfast" | "lunch" | "dinner" | "snack";
   maxCookTime?: number;
   proteinTarget?: number;
+  proteinType?: "chicken" | "beef" | "pork" | "seafood" | "tofu" | "egg" | "plant" | "mixed";
+  dietaryTag?: string;
+  favoriteRecipeIds?: string[];
+  recentRecipeIds?: string[];
+  hiddenRecipeIds?: string[];
+  dislikedRecipeIds?: string[];
+  preferredCuisines?: string[];
+  preferredMealTypes?: Array<"breakfast" | "lunch" | "dinner" | "snack">;
+  randomSeed?: number;
 };
+
+type RecipeMetadata = {
+  source: "BUILT_IN" | "USER" | "IMPORTED" | "FAMILY_FAVORITES";
+  mealType: "breakfast" | "lunch" | "dinner" | "snack";
+  difficulty: "easy" | "medium" | "hard";
+  proteinType: "chicken" | "beef" | "pork" | "seafood" | "tofu" | "egg" | "plant" | "mixed";
+  dietaryTags: string[];
+};
+
+const RECIPE_METADATA_OVERRIDES: Record<string, Omit<RecipeMetadata, "difficulty">> = {
+  "egg fried rice": {
+    source: "BUILT_IN",
+    mealType: "dinner",
+    proteinType: "egg",
+    dietaryTags: ["quick", "family-friendly"]
+  },
+  "chicken broccoli stir-fry": {
+    source: "BUILT_IN",
+    mealType: "dinner",
+    proteinType: "chicken",
+    dietaryTags: ["high-protein", "weeknight"]
+  },
+  "miso tofu rice bowl": {
+    source: "BUILT_IN",
+    mealType: "lunch",
+    proteinType: "tofu",
+    dietaryTags: ["vegetarian", "high-fiber"]
+  },
+  "korean salmon bowl": {
+    source: "BUILT_IN",
+    mealType: "dinner",
+    proteinType: "seafood",
+    dietaryTags: ["omega-3", "high-protein"]
+  },
+  "milk egg scramble": {
+    source: "BUILT_IN",
+    mealType: "breakfast",
+    proteinType: "egg",
+    dietaryTags: ["quick", "high-protein"]
+  },
+  "mediterranean chickpea bowl": {
+    source: "BUILT_IN",
+    mealType: "lunch",
+    proteinType: "plant",
+    dietaryTags: ["vegetarian", "high-fiber"]
+  }
+};
+
+function clamp(value: number, min = 0, max = 1) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function toDifficultyLabel(value: Recipe["difficulty"]): RecipeMetadata["difficulty"] {
+  const normalized = String(value).toLowerCase();
+  if (normalized === "easy" || normalized === "hard") {
+    return normalized;
+  }
+
+  return "medium";
+}
+
+function hashString(input: string) {
+  let hash = 0;
+  for (let index = 0; index < input.length; index += 1) {
+    hash = (hash << 5) - hash + input.charCodeAt(index);
+    hash |= 0;
+  }
+
+  return Math.abs(hash);
+}
+
+function seededJitter(seed: number, key: string) {
+  const value = Math.sin((seed + 1) * (hashString(key) + 17)) * 10000;
+  return value - Math.floor(value);
+}
+
+function deriveRecipeMetadata(recipe: RecipeWithIngredients): RecipeMetadata {
+  const normalizedName = normalizeFoodName(recipe.name);
+  const override = RECIPE_METADATA_OVERRIDES[normalizedName];
+  if (override) {
+    return {
+      ...override,
+      difficulty: toDifficultyLabel(recipe.difficulty)
+    };
+  }
+
+  const ingredientNames = recipe.ingredients.map((ingredient) => normalizeFoodName(ingredient.name));
+  const joined = ` ${ingredientNames.join(" ")} ${normalizedName} `;
+
+  let proteinType: RecipeMetadata["proteinType"] = "mixed";
+  if (joined.includes("chicken")) {
+    proteinType = "chicken";
+  } else if (joined.includes("beef")) {
+    proteinType = "beef";
+  } else if (joined.includes("pork")) {
+    proteinType = "pork";
+  } else if (joined.includes("salmon") || joined.includes("fish") || joined.includes("shrimp") || joined.includes("seafood")) {
+    proteinType = "seafood";
+  } else if (joined.includes("tofu")) {
+    proteinType = "tofu";
+  } else if (joined.includes("egg")) {
+    proteinType = "egg";
+  } else if (joined.includes("bean") || joined.includes("chickpea") || joined.includes("lentil")) {
+    proteinType = "plant";
+  }
+
+  let mealType: RecipeMetadata["mealType"] = "dinner";
+  if (recipe.cookTime <= 12 || joined.includes("scramble") || joined.includes("breakfast")) {
+    mealType = "breakfast";
+  } else if (recipe.cookTime <= 20) {
+    mealType = "lunch";
+  }
+
+  const dietaryTags: string[] = [];
+  if (proteinType === "tofu" || proteinType === "plant") {
+    dietaryTags.push("vegetarian");
+  }
+  if (recipe.cookTime <= 20) {
+    dietaryTags.push("quick");
+  }
+  if (Number(recipe.protein ?? 0) >= 25) {
+    dietaryTags.push("high-protein");
+  }
+
+  return {
+    source: "BUILT_IN",
+    mealType,
+    difficulty: toDifficultyLabel(recipe.difficulty),
+    proteinType,
+    dietaryTags
+  };
+}
 
 export function buildRecipeRecommendations(
   inventory: InventoryItem[],
@@ -24,22 +166,74 @@ export function buildRecipeRecommendations(
     inventoryByName.set(key, current);
   }
 
+  const hiddenRecipeIds = new Set(options.hiddenRecipeIds ?? []);
+  const dislikedRecipeIds = new Set(options.dislikedRecipeIds ?? []);
+  const favoriteRecipeIds = new Set(options.favoriteRecipeIds ?? []);
+  const recentRecipeIds = options.recentRecipeIds ?? [];
+  const recentWeightById = new Map<string, number>();
+  recentRecipeIds.forEach((recipeId, index) => {
+    const rank = recentRecipeIds.length - index;
+    recentWeightById.set(recipeId, rank / Math.max(recentRecipeIds.length, 1));
+  });
+
+  const preferredCuisines = new Set((options.preferredCuisines ?? []).map((value) => value.toLowerCase()));
+  const preferredMealTypes = new Set(options.preferredMealTypes ?? []);
+  const randomSeed = Number.isFinite(options.randomSeed) ? Number(options.randomSeed) : Date.now();
+
   return recipes
+    .filter((recipe) => !hiddenRecipeIds.has(recipe.id) && !dislikedRecipeIds.has(recipe.id))
     .filter((recipe) => (options.cuisine ? recipe.cuisine.toLowerCase() === options.cuisine.toLowerCase() : true))
     .filter((recipe) => (options.maxCookTime != null ? recipe.cookTime <= options.maxCookTime : true))
     .filter((recipe) => (options.proteinTarget != null ? Number(recipe.protein ?? 0) >= options.proteinTarget : true))
+    .filter((recipe) => {
+      const metadata = deriveRecipeMetadata(recipe);
+      return options.mealType ? metadata.mealType === options.mealType : true;
+    })
+    .filter((recipe) => {
+      const metadata = deriveRecipeMetadata(recipe);
+      return options.proteinType ? metadata.proteinType === options.proteinType : true;
+    })
+    .filter((recipe) => {
+      const metadata = deriveRecipeMetadata(recipe);
+      return options.dietaryTag ? metadata.dietaryTags.map((tag) => tag.toLowerCase()).includes(options.dietaryTag.toLowerCase()) : true;
+    })
     .map((recipe) => {
+      const metadata = deriveRecipeMetadata(recipe);
       const required = recipe.ingredients.filter((ingredient) => !ingredient.isOptional);
       const matched = required.filter((ingredient) => inventoryByName.has(normalizeFoodName(ingredient.name)));
       const missingDetailed = required.filter((ingredient) => !inventoryByName.has(normalizeFoodName(ingredient.name)));
       const missing = missingDetailed.map((ingredient) => ingredient.name);
 
-      const score = required.length === 0 ? 100 : Math.round((matched.length / required.length) * 100);
+      const inventoryMatch = required.length === 0 ? 1 : matched.length / required.length;
       const matchedNames = matched.map((ingredient) => ingredient.name);
       const expiringMatches = matchedNames.filter((ingredientName) => {
         const candidates = inventoryByName.get(normalizeFoodName(ingredientName)) ?? [];
         return candidates.some((item) => isExpiringSoonBucket(getExpirationBucket(item.expirationDate)));
       });
+
+      const expiringIngredientMatch = matchedNames.length === 0 ? 0 : expiringMatches.length / matchedNames.length;
+      const missingPenalty = required.length === 0 ? 0 : missing.length / required.length;
+      const cuisinePreference = preferredCuisines.has(recipe.cuisine.toLowerCase()) ? 1 : 0;
+      const mealTypePreference = preferredMealTypes.size === 0 || preferredMealTypes.has(metadata.mealType) ? 1 : 0;
+      const userPreference = clamp(cuisinePreference * 0.65 + mealTypePreference * 0.35);
+      const recentPenalty = clamp(recentWeightById.get(recipe.id) ?? 0);
+      const favoriteBoost = favoriteRecipeIds.has(recipe.id) ? 0.12 : 0;
+      const varietyScore = clamp(1 - recentPenalty);
+      const mealTypeMatch = options.mealType ? (metadata.mealType === options.mealType ? 1 : 0) : mealTypePreference;
+      const randomJitter = (seededJitter(randomSeed, recipe.id) - 0.5) * 0.06;
+
+      const weightedScore =
+        inventoryMatch * 0.35 +
+        expiringIngredientMatch * 0.25 +
+        userPreference * 0.15 +
+        varietyScore * 0.15 +
+        mealTypeMatch * 0.1 -
+        missingPenalty * 0.2 +
+        favoriteBoost -
+        recentPenalty * 0.12 +
+        randomJitter;
+
+      const score = Math.round(clamp(weightedScore, 0, 1.2) * 100);
 
       const reasonParts: string[] = [];
       if (matchedNames.length > 0) {
@@ -55,6 +249,12 @@ export function buildRecipeRecommendations(
       } else {
         reasonParts.push(`only needs ${missing.length} more ingredients`);
       }
+      if (favoriteRecipeIds.has(recipe.id)) {
+        reasonParts.push("boosted from your favorites");
+      }
+      if (recentPenalty > 0.7) {
+        reasonParts.push("intentionally rotated down to keep recommendations diverse");
+      }
       reasonParts.push(`${recipe.cookTime} min cook time`);
 
       return {
@@ -62,6 +262,11 @@ export function buildRecipeRecommendations(
         name: recipe.name,
         matchScore: score,
         ingredientMatchPercent: score,
+        source: metadata.source,
+        mealType: metadata.mealType,
+        difficulty: metadata.difficulty,
+        proteinType: metadata.proteinType,
+        dietaryTags: metadata.dietaryTags,
         missingIngredients: missing,
         missingIngredientsDetailed: missingDetailed.map((ingredient) => ({
           name: ingredient.name,
@@ -71,6 +276,17 @@ export function buildRecipeRecommendations(
         })),
         matchedIngredients: matchedNames,
         reason: `${reasonParts.join(". ")}.`,
+        scoreBreakdown: {
+          inventoryMatch: Math.round(inventoryMatch * 100) / 100,
+          expiringIngredientMatch: Math.round(expiringIngredientMatch * 100) / 100,
+          userPreference: Math.round(userPreference * 100) / 100,
+          varietyScore: Math.round(varietyScore * 100) / 100,
+          mealTypeMatch: Math.round(mealTypeMatch * 100) / 100,
+          missingPenalty: Math.round(missingPenalty * 100) / 100,
+          favoriteBoost: Math.round(favoriteBoost * 100) / 100,
+          recentPenalty: Math.round(recentPenalty * 100) / 100,
+          randomJitter: Math.round(randomJitter * 100) / 100
+        },
         estimatedCalories: recipe.calories,
         estimatedProtein: recipe.protein ? Number(recipe.protein) : null,
         estimatedFat: recipe.fat ? Number(recipe.fat) : null,
@@ -79,5 +295,10 @@ export function buildRecipeRecommendations(
         cuisine: recipe.cuisine
       };
     })
-    .sort((a, b) => b.matchScore - a.matchScore || a.missingIngredients.length - b.missingIngredients.length || a.name.localeCompare(b.name));
+    .sort(
+      (a, b) =>
+        b.matchScore - a.matchScore ||
+        a.missingIngredients.length - b.missingIngredients.length ||
+        a.name.localeCompare(b.name)
+    );
 }

@@ -58,7 +58,7 @@ export function DashboardOverview({
     {
       id: "expiring",
       emoji: "🥚",
-      title: expiringSoon > 0 ? `${expiringSoon} food item${expiringSoon === 1 ? "" : "s"} expiring soon` : "No urgent expiring foods",
+      title: expiringSoon > 0 ? `Expiring Soon: ${expiringSoon} item${expiringSoon === 1 ? "" : "s"}` : "Expiring Soon: all clear",
       detail: expiringSoon > 0 ? "Use these first to avoid waste." : "You are clear on spoilage risk today.",
       href: "/inventory?filter=expiring" as Route,
       icon: AlertTriangle
@@ -66,7 +66,7 @@ export function DashboardOverview({
     {
       id: "shopping",
       emoji: "🛒",
-      title: shoppingCount > 0 ? `${shoppingCount} item${shoppingCount === 1 ? "" : "s"} to buy` : "Shopping list is clear",
+      title: shoppingCount > 0 ? `Buy This Week: ${shoppingCount} item${shoppingCount === 1 ? "" : "s"}` : "Buy This Week: no gaps",
       detail: shoppingCount > 0 ? "Complete the list before your next meal prep." : "No missing essentials are tracked right now.",
       href: "/shopping",
       icon: ShoppingCart
@@ -74,7 +74,7 @@ export function DashboardOverview({
     {
       id: "recipes",
       emoji: "🍜",
-      title: topRecommendation ? `Cook ${topRecommendation.name} tonight` : "No strong dinner match yet",
+      title: topRecommendation ? `Cook Tonight: ${topRecommendation.name}` : "Cook Tonight: no strong match yet",
       detail: topRecommendation ? `${topRecommendation.matchScore}% match with your current inventory.` : "Add or scan inventory to unlock better matches.",
       href: "/recipes",
       icon: ChefHat
@@ -82,7 +82,7 @@ export function DashboardOverview({
     {
       id: "nutrition",
       emoji: "🥗",
-      title: `Protein on hand: ${Math.round(nutritionSummary.totalProtein)} g`,
+      title: `Nutrition Action: ${Math.round(nutritionSummary.totalProtein)}g protein ready`,
       detail: `${Math.round(nutritionSummary.totalCalories)} kcal available for planning today.`,
       href: "/nutrition",
       icon: BarChart3

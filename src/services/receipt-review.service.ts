@@ -1,4 +1,5 @@
 import { ItemCategory, StorageLocation } from "@prisma/client";
+import { normalizeReceiptItemName } from "@/services/grocery-normalization";
 import { inferReceiptItemDetails } from "@/services/ocr.service";
 import { getSuggestedExpirationDate, normalizeFoodName } from "@/utils/food";
 
@@ -53,8 +54,9 @@ export function buildReceiptReviewLines(lines: OcrLineInput[], inventoryItems: I
   }
 
   return lines.map((line) => {
-    const details = inferReceiptItemDetails(line.extractedName);
-    const duplicateCandidates = (inventoryByName.get(normalizeFoodName(line.extractedName)) ?? []).map((item) => ({
+    const normalized = normalizeReceiptItemName(line.rawLine || line.extractedName);
+    const details = inferReceiptItemDetails(normalized.normalizedName || line.extractedName);
+    const duplicateCandidates = (inventoryByName.get(normalizeFoodName(normalized.normalizedName || line.extractedName)) ?? []).map((item) => ({
       id: item.id,
       name: item.name,
       quantity: item.quantity,
@@ -67,6 +69,13 @@ export function buildReceiptReviewLines(lines: OcrLineInput[], inventoryItems: I
 
     return {
       ...line,
+      rawName: normalized.rawName,
+      normalizedName: normalized.normalizedName,
+      displayName: normalized.displayName,
+      displayNameZh: normalized.displayNameZh,
+      aliases: normalized.aliases,
+      needsReview: normalized.needsReview || (line.confidence != null && Number(line.confidence) < 0.72),
+      normalizationConfidence: normalized.confidence,
       suggestedCategory: details.category,
       suggestedStorageLocation: details.storageLocation,
       suggestedExpirationDate: getSuggestedExpirationDate(details.category, new Date())?.toISOString() ?? null,
