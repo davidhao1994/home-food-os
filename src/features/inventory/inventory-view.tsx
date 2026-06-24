@@ -131,6 +131,7 @@ export function InventoryView({ initialItems }: Props) {
   const [locationFilter, setLocationFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState<"name" | "expiration">("expiration");
   const [receiptOnlyFilter, setReceiptOnlyFilter] = useState(false);
+  const [needsReviewOnlyFilter, setNeedsReviewOnlyFilter] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const expiringFilterOn = searchParams.get("filter") === "expiring";
@@ -152,11 +153,27 @@ export function InventoryView({ initialItems }: Props) {
     return () => mediaQuery.removeEventListener("change", syncMobile);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const closeTransientUi = () => {
+      setIsFilterPanelOpen(false);
+      setIsEditorOpen(false);
+      setEditingId(null);
+    };
+
+    window.addEventListener("home-food-os:tab-switch", closeTransientUi);
+    return () => window.removeEventListener("home-food-os:tab-switch", closeTransientUi);
+  }, []);
+
   const filtered = useMemo(() => {
     return [...items]
       .filter((item) => (categoryFilter === "ALL" ? true : item.category === categoryFilter))
       .filter((item) => (locationFilter === "ALL" ? true : item.storageLocation === locationFilter))
       .filter((item) => (receiptOnlyFilter ? item.notes?.includes("OCR_RAW:") : true))
+      .filter((item) => (needsReviewOnlyFilter ? item.notes?.includes("OCR_NEEDS_REVIEW: true") : true))
       .filter((item) => {
         if (!expiringFilterOn) {
           return true;
@@ -175,7 +192,7 @@ export function InventoryView({ initialItems }: Props) {
 
         return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime();
       });
-  }, [items, categoryFilter, locationFilter, receiptOnlyFilter, expiringFilterOn, search, sortBy]);
+  }, [items, categoryFilter, locationFilter, receiptOnlyFilter, needsReviewOnlyFilter, expiringFilterOn, search, sortBy]);
 
   const readableNamesById = useMemo(() => {
     const map = new Map<
@@ -196,10 +213,11 @@ export function InventoryView({ initialItems }: Props) {
       const noteNeedsReview = parseNoteValue(item.notes, "OCR_NEEDS_REVIEW") === "true";
       const normalized = normalizeReceiptItemName(rawName || noteNormalized || item.name);
       const fallbackName = noteNormalized || normalized.normalizedName || normalized.displayName || item.name;
+      const userCorrectedZh = /[\u3400-\u9fff]/.test(item.name) ? item.name : null;
 
       const primaryName =
         language === "zh"
-          ? noteDisplayZh || normalized.displayNameZh || noteDisplayEn || normalized.displayName || fallbackName
+          ? userCorrectedZh || noteDisplayZh || normalized.displayNameZh || normalized.possibleDisplayNameZh || noteDisplayEn || normalized.displayName || fallbackName
           : noteDisplayEn || normalized.displayName || noteDisplayZh || normalized.displayNameZh || fallbackName;
 
       map.set(item.id, {
@@ -377,6 +395,9 @@ export function InventoryView({ initialItems }: Props) {
             <Button type="button" variant={receiptOnlyFilter ? "default" : "outline"} size="sm" className="h-9" onClick={() => setReceiptOnlyFilter((current) => !current)}>
               {tr("Receipt items", "小票食材")}
             </Button>
+            <Button type="button" variant={needsReviewOnlyFilter ? "default" : "outline"} size="sm" className="h-9" onClick={() => setNeedsReviewOnlyFilter((current) => !current)}>
+              {tr("Needs review", "需要确认")}
+            </Button>
           </div>
         ) : (
           <>
@@ -419,12 +440,13 @@ export function InventoryView({ initialItems }: Props) {
         </Button>
         </div>
 
-        {(categoryFilter !== "ALL" || locationFilter !== "ALL" || sortBy !== "expiration" || receiptOnlyFilter) && isMobile ? (
+        {(categoryFilter !== "ALL" || locationFilter !== "ALL" || sortBy !== "expiration" || receiptOnlyFilter || needsReviewOnlyFilter) && isMobile ? (
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
             {categoryFilter !== "ALL" ? <span className="rounded-full bg-muted px-2 py-1">{tr("Category", "分类")}: {categoryFilter.replace("_", " ")}</span> : null}
             {locationFilter !== "ALL" ? <span className="rounded-full bg-muted px-2 py-1">{tr("Location", "位置")}: {locationFilter.replace("_", " ")}</span> : null}
             {sortBy !== "expiration" ? <span className="rounded-full bg-muted px-2 py-1">{tr("Sort", "排序")}: {sortBy}</span> : null}
             {receiptOnlyFilter ? <span className="rounded-full bg-muted px-2 py-1">{tr("Receipt items", "小票食材")}</span> : null}
+            {needsReviewOnlyFilter ? <span className="rounded-full bg-muted px-2 py-1">{tr("Needs review", "需要确认")}</span> : null}
           </div>
         ) : null}
       </div>
@@ -451,6 +473,14 @@ export function InventoryView({ initialItems }: Props) {
                 <option value="expiration">{tr("Sort by expiration", "按过期时间")}</option>
                 <option value="name">{tr("Sort by name", "按名称")}</option>
               </select>
+              <label className="flex items-center gap-2 rounded-md border border-input px-3 py-2 text-sm">
+                <input type="checkbox" checked={receiptOnlyFilter} onChange={(event) => setReceiptOnlyFilter(event.target.checked)} />
+                {tr("Receipt items only", "仅显示小票食材")}
+              </label>
+              <label className="flex items-center gap-2 rounded-md border border-input px-3 py-2 text-sm">
+                <input type="checkbox" checked={needsReviewOnlyFilter} onChange={(event) => setNeedsReviewOnlyFilter(event.target.checked)} />
+                {tr("Needs review only", "仅显示需要确认")}
+              </label>
             </div>
             <div className="mt-4 flex gap-2">
               <Button type="button" variant="secondary" className="flex-1" onClick={() => setIsFilterPanelOpen(false)}>{tr("Apply", "应用")}</Button>
@@ -462,6 +492,8 @@ export function InventoryView({ initialItems }: Props) {
                   setCategoryFilter("ALL");
                   setLocationFilter("ALL");
                   setSortBy("expiration");
+                  setReceiptOnlyFilter(false);
+                  setNeedsReviewOnlyFilter(false);
                   setIsFilterPanelOpen(false);
                 }}
               >

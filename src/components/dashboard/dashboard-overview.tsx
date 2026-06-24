@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { AlertTriangle, Apple, ArrowRight, BarChart3, ChefHat, Receipt, ShoppingCart, Sparkles, WandSparkles } from "lucide-react";
+import { AlertTriangle, Apple, ArrowRight, ChefHat, Receipt, ShoppingCart, Sparkles, WandSparkles } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatsCard } from "@/components/shared/stats-card";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,12 @@ type DashboardOverviewProps = {
   inventoryCount: number;
   shoppingCount: number;
   expiringSoon: number;
+  expiringToday: number;
+  expiringIn3Days: number;
   recommendedCount: number;
+  smartRebuyCount: number;
+  smartRebuyItems: string[];
+  missingForTopRecommendation: string[];
   nutritionSummary: {
     totalProtein: number;
     totalCalories: number;
@@ -46,7 +51,12 @@ export function DashboardOverview({
   inventoryCount,
   shoppingCount,
   expiringSoon,
+  expiringToday,
+  expiringIn3Days,
   recommendedCount,
+  smartRebuyCount,
+  smartRebuyItems,
+  missingForTopRecommendation,
   nutritionSummary,
   alerts,
   recentItems,
@@ -59,16 +69,16 @@ export function DashboardOverview({
     {
       id: "expiring",
       emoji: "🥚",
-      title: expiringSoon > 0 ? tr(`Expiring Soon: ${expiringSoon} item${expiringSoon === 1 ? "" : "s"}`, `快过期了：${expiringSoon}项`) : tr("Expiring Soon: all clear", "快过期了：今天没有"),
-      detail: expiringSoon > 0 ? tr("Use these first to avoid waste.", "优先吃这些，减少浪费。") : tr("You are clear on spoilage risk today.", "今天临期风险较低。"),
+      title: expiringSoon > 0 ? tr(`Use first: ${expiringSoon} expiring item${expiringSoon === 1 ? "" : "s"}`, `优先消耗：${expiringSoon}项临期食材`) : tr("Use first: all clear", "优先消耗：今天无临期"),
+      detail: tr(`Today ${expiringToday}, next 1-3 days ${expiringIn3Days}.`, `今天到期 ${expiringToday}，1-3天内 ${expiringIn3Days}。`),
       href: "/inventory?filter=expiring" as Route,
       icon: AlertTriangle
     },
     {
-      id: "shopping",
+      id: "rebuy",
       emoji: "🛒",
-      title: shoppingCount > 0 ? tr(`Buy This Week: ${shoppingCount} item${shoppingCount === 1 ? "" : "s"}`, `需要买：${shoppingCount}项`) : tr("Buy This Week: no gaps", "需要买：目前无需补货"),
-      detail: shoppingCount > 0 ? tr("Complete the list before your next meal prep.", "下次做饭前先补齐。") : tr("No missing essentials are tracked right now.", "暂未发现缺少的必需品。"),
+      title: smartRebuyCount > 0 ? tr(`Smart rebuy: ${smartRebuyCount} suggestions`, `智能回购：${smartRebuyCount}项`) : tr("Smart rebuy: learning your routine", "智能回购：正在学习你的习惯"),
+      detail: smartRebuyCount > 0 ? tr("Frequently bought items that you may need soon.", "根据历史小票推断你可能快需要的食材。") : tr("Scan more receipts to improve rebuy suggestions.", "多扫描小票后回购建议会更准确。"),
       href: "/shopping",
       icon: ShoppingCart
     },
@@ -80,14 +90,6 @@ export function DashboardOverview({
       href: "/recipes",
       icon: ChefHat
     },
-    {
-      id: "nutrition",
-      emoji: "🥗",
-      title: tr(`Nutrition: ${Math.round(nutritionSummary.totalProtein)}g protein ready`, `营养：已准备 ${Math.round(nutritionSummary.totalProtein)}g 蛋白质`),
-      detail: tr(`${Math.round(nutritionSummary.totalCalories)} kcal available for planning today.`, `可用热量约 ${Math.round(nutritionSummary.totalCalories)} kcal。`),
-      href: "/nutrition",
-      icon: BarChart3
-    }
   ];
 
   return (
@@ -121,6 +123,15 @@ export function DashboardOverview({
                       {label}
                     </span>
                   ))}
+                </div>
+                <div className="mt-3 rounded-xl border border-primary/20 bg-background/70 p-3 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">{tr("Missing for tonight", "今晚还缺")}</p>
+                  <p className="mt-1">
+                    {missingForTopRecommendation.length > 0
+                      ? missingForTopRecommendation.join(language === "zh" ? "、" : ", ")
+                      : tr("No key ingredient gaps for the top suggestion.", "当前首推菜谱关键食材基本齐全。")}
+                  </p>
+                  <p className="mt-1">{tr("Available protein in current inventory", "当前库存可用蛋白质")} {Math.round(nutritionSummary.totalProtein)}g</p>
                 </div>
               </div>
               <div className="rounded-2xl border border-primary/20 bg-background/70 px-4 py-3 text-right shadow-sm">
@@ -178,7 +189,7 @@ export function DashboardOverview({
             <Button asChild variant="outline" className="justify-start rounded-2xl">
               <Link href="/shopping" aria-label={t(language, "addShoppingItem")}>
                 <ShoppingCart className="mr-2 h-4 w-4" />
-                {t(language, "addShoppingItem")}
+                {tr("Smart Rebuy", "智能回购")}
               </Link>
             </Button>
             <Button asChild variant="outline" className="justify-start rounded-2xl">
@@ -208,13 +219,7 @@ export function DashboardOverview({
           helper={t(language, "recipesWithMatch")}
           href="/recipes"
         />
-        <StatsCard
-          title={t(language, "nutritionSummary")}
-          value={`${Math.round(nutritionSummary.totalProtein)} g`}
-          icon={<BarChart3 className="h-5 w-5" />}
-          helper={`${Math.round(nutritionSummary.totalCalories)} ${t(language, "kcalAvailable")}`}
-          href="/nutrition"
-        />
+        <StatsCard title={tr("Smart Rebuy", "智能回购")} value={smartRebuyCount} icon={<ShoppingCart className="h-5 w-5" />} helper={tr("Based on receipt history", "基于小票历史")} href="/shopping" />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -300,6 +305,26 @@ export function DashboardOverview({
                 <Link href="/recipes">{t(language, "viewAllRecipes")}</Link>
               </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>{tr("Smart Rebuy Suggestions", "智能回购建议")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {smartRebuyItems.length === 0 ? <p className="text-sm text-muted-foreground">{tr("No suggestions yet. Keep scanning receipts.", "暂无建议。继续扫描小票即可学习你的购买习惯。")}</p> : null}
+            {smartRebuyItems.map((name) => (
+              <Link
+                key={name}
+                href="/shopping"
+                aria-label={`${t(language, "openSection")} ${name}`}
+                className="group block rounded-lg border p-3 text-sm transition hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <p className="font-medium">{name}</p>
+                <p className="text-xs text-muted-foreground">{tr("Frequently bought, not seen recently", "经常购买但最近未出现")}</p>
+              </Link>
+            ))}
           </CardContent>
         </Card>
       </div>

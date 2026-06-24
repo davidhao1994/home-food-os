@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
-import { Apple, BarChart3, Bot, ChefHat, LayoutDashboard, Receipt, ShoppingBasket, User2, type LucideIcon } from "lucide-react";
+import { Apple, Bot, ChefHat, LayoutDashboard, Receipt, ShoppingBasket, User2, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
 import { useUiStore } from "@/store/ui-store";
@@ -21,7 +21,6 @@ type NavLink = {
     | "navInventory"
     | "navShopping"
     | "navRecipes"
-    | "navNutrition"
     | "navReceipts"
     | "navAssistant"
     | "navProfile";
@@ -30,10 +29,9 @@ type NavLink = {
 const links: NavLink[] = [
   { href: "/dashboard", icon: LayoutDashboard, labelKey: "navDashboard" },
   { href: "/inventory", icon: Apple, labelKey: "navInventory" },
+  { href: "/receipts", icon: Receipt, labelKey: "navReceipts" },
   { href: "/shopping", icon: ShoppingBasket, labelKey: "navShopping" },
   { href: "/recipes", icon: ChefHat, labelKey: "navRecipes" },
-  { href: "/nutrition", icon: BarChart3, labelKey: "navNutrition" },
-  { href: "/receipts", icon: Receipt, labelKey: "navReceipts" },
   { href: "/assistant", icon: Bot, labelKey: "navAssistant" },
   { href: "/profile", icon: User2, labelKey: "navProfile" }
 ];
@@ -43,7 +41,6 @@ const mobileLinks: NavLink[] = [
   { href: "/inventory", icon: Apple, labelKey: "navInventory" },
   { href: "/receipts", icon: Receipt, labelKey: "navReceipts" },
   { href: "/shopping", icon: ShoppingBasket, labelKey: "navShopping" },
-  { href: "/nutrition", icon: BarChart3, labelKey: "navNutrition" },
   { href: "/recipes", icon: ChefHat, labelKey: "navRecipes" }
 ];
 
@@ -61,13 +58,25 @@ export function NavLinks({ showProfile, mode = "desktop" }: NavLinksProps) {
   const navLinks = showProfile ? links : links.filter((link) => link.href !== "/profile");
   const scanLabel = t(language, "navScan");
 
+  const prepareTabSwitch = () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.dispatchEvent(new Event("home-food-os:tab-switch"));
+
+    document.querySelectorAll("details[open]").forEach((node) => {
+      node.removeAttribute("open");
+    });
+  };
+
   if (mode === "mobile") {
     return (
       <nav
-        className="fixed inset-x-0 bottom-0 z-[140] border-t border-border/80 bg-background/95 px-3 pb-[max(env(safe-area-inset-bottom),0.9rem)] pt-2 backdrop-blur md:hidden"
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-[220] border-t border-border/80 bg-background/95 px-3 pb-[max(env(safe-area-inset-bottom),0.9rem)] pt-2 backdrop-blur md:hidden"
         style={{ WebkitTapHighlightColor: "transparent" }}
       >
-        <div className="mx-auto flex max-w-md items-end justify-between gap-1">
+        <div className="pointer-events-auto mx-auto flex max-w-md items-end justify-between gap-1">
           {mobileLinks.map((link) => {
             const Icon = link.icon;
             const active = isLinkActive(pathname, link.href);
@@ -78,6 +87,7 @@ export function NavLinks({ showProfile, mode = "desktop" }: NavLinksProps) {
                 key={link.href}
                 href={isPrimary ? { pathname: "/receipts", query: { capture: "1" } } : link.href}
                 aria-current={active ? "page" : undefined}
+                onClick={prepareTabSwitch}
                 className={cn(
                   "touch-manipulation flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-medium text-muted-foreground/70 transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   active && !isPrimary && "bg-primary text-primary-foreground shadow-sm",
@@ -107,6 +117,7 @@ export function NavLinks({ showProfile, mode = "desktop" }: NavLinksProps) {
             key={link.href}
             href={link.href}
             aria-current={active ? "page" : undefined}
+            onClick={prepareTabSwitch}
             className={cn(
               "touch-manipulation flex min-w-fit shrink-0 items-center gap-2 rounded-xl border border-transparent px-3 py-3.5 text-sm font-medium text-muted-foreground/80 transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active &&

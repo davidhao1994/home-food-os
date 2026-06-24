@@ -13,7 +13,7 @@ export default async function InventoryPage() {
 
   return (
     <div>
-      <PageHeader title="Food Inventory" subtitle="Track quantities, categories, locations, and expirations." />
+      <PageHeader title="Inventory / 库存" subtitle="Scan receipts first, keep names readable, and use expiring foods sooner. / 先扫小票，自动生成可读库存，并优先消耗临期食材。" />
       <InventoryView
         initialItems={items.map((item) => ({
           ...item,

@@ -104,10 +104,22 @@ function tr(language: "en" | "zh", en: string, zh: string) {
   return language === "zh" ? zh : en;
 }
 
+function hasChineseText(value: string | null | undefined) {
+  if (!value) {
+    return false;
+  }
+
+  return /[\u3400-\u9fff]/.test(value);
+}
+
 function getPrimaryName(language: "en" | "zh", line: OcrItem) {
+  if (language === "zh" && hasChineseText(line.extractedName)) {
+    return line.extractedName;
+  }
+
   if (line.needsReview) {
     if (language === "zh") {
-      return line.possibleNameHintZh || line.displayNameZh || line.possibleNameHint || line.displayName || line.extractedName;
+      return line.displayNameZh || line.possibleNameHintZh || line.possibleNameHint || line.displayName || line.extractedName;
     }
 
     return line.possibleNameHint || line.displayName || line.extractedName;
@@ -211,7 +223,7 @@ export function ReceiptUploader() {
         return current.filter((id) => nextResults.some((line) => line.id === id && line.lineStatus !== "REJECTED"));
       }
 
-      return nextResults.filter((line) => line.lineStatus !== "REJECTED").map((line) => line.id);
+      return nextResults.filter((line) => line.lineStatus !== "REJECTED" && !line.needsReview).map((line) => line.id);
     });
   };
 
@@ -405,7 +417,7 @@ export function ReceiptUploader() {
             extractedName: line.extractedName,
             normalizedName: line.normalizedName ?? null,
             displayName: line.displayName ?? null,
-            displayNameZh: line.displayNameZh ?? null,
+            displayNameZh: hasChineseText(line.extractedName) ? line.extractedName : line.displayNameZh ?? null,
             needsReview: line.needsReview ?? false,
             extractedQuantity: line.extractedQuantity,
             extractedUnit: line.extractedUnit,
@@ -626,166 +638,81 @@ export function ReceiptUploader() {
                 </Button>
               </div>
 
-              <div className="space-y-3 md:hidden">
-                {results.map((line) => (
-                  <div key={line.id} className="rounded-2xl border bg-card p-3 shadow-sm">
-                    <div className="flex items-start justify-between gap-3">
-                      <label className="inline-flex items-center gap-2 text-sm font-medium">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.includes(line.id)}
-                          onChange={() => toggleSelected(line.id)}
-                          aria-label={`Include ${line.extractedName}`}
-                        />
-                        {tr(language, "Include item", "包含此项")}
-                      </label>
-                      <div className="flex flex-wrap justify-end gap-2 text-[11px]">
-                        <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground">
-                          {line.confidence != null ? `${Math.round(line.confidence * 100)}% ${tr(language, "confidence", "置信度")}` : tr(language, "No confidence", "无置信度")}
-                        </span>
-                        {line.needsReview ? <span className="rounded-full bg-warning/15 px-2 py-1 text-warning">{tr(language, "Needs Review", "需要确认")}</span> : null}
-                        {line.lineStatus === "REJECTED" ? <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground">{tr(language, "Ignored", "已忽略")}</span> : null}
-                      </div>
+              <div className="space-y-4">
+                {[
+                  { key: "ready", title: tr(language, "Ready to Import", "可以入库"), lines: readyItems },
+                  { key: "review", title: tr(language, "Needs Review", "需要确认"), lines: needsReviewItems },
+                  { key: "ignored", title: tr(language, "Ignored", "已忽略"), lines: ignoredItems }
+                ].map((group) => (
+                  <section key={group.key} className="rounded-2xl border bg-card/70 p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <h4 className="text-sm font-semibold">{group.title}</h4>
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{group.lines.length}</span>
                     </div>
 
-                    <div className="mt-3 grid grid-cols-1 gap-2">
-                      <div className="rounded-xl border bg-muted/20 px-3 py-2">
-                        <p className="text-sm font-semibold text-foreground">{getPrimaryName(language, line)}</p>
-                        {line.needsReview ? <p className="mt-1 text-xs text-warning">{tr(language, "Possible item - needs review", "可能是该食材，需要确认")}</p> : null}
-                        <p className="mt-1 text-xs text-muted-foreground">{tr(language, "Original receipt text:", "小票原文：")} {line.rawName ?? line.rawLine ?? "N/A"}</p>
-                      </div>
-                      <label className="text-xs text-muted-foreground">{tr(language, "Item name", "食材名称")}</label>
-                      <input
-                        value={line.extractedName}
-                        onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedName: event.target.value }))}
-                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                        disabled={!canReview}
-                      />
+                    {group.lines.length === 0 ? <p className="text-xs text-muted-foreground">{tr(language, "No items in this group", "该分组暂无项目")}</p> : null}
 
-                      <div className="grid grid-cols-3 gap-2">
-                        <div>
-                          <label className="text-xs text-muted-foreground">{tr(language, "Qty", "数量")}</label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={line.extractedQuantity ?? ""}
-                            onChange={(event) =>
-                              updateLine(line.id, (current) => ({
-                                ...current,
-                                extractedQuantity: event.target.value ? Number(event.target.value) : null
-                              }))
-                            }
-                            className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                            disabled={!canReview}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs text-muted-foreground">{tr(language, "Unit", "单位")}</label>
-                          <input
-                            value={line.extractedUnit ?? ""}
-                            onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedUnit: event.target.value || null }))}
-                            className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                            disabled={!canReview}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs text-muted-foreground">{tr(language, "Price", "价格")}</label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={line.extractedPrice ?? ""}
-                            onChange={(event) =>
-                              updateLine(line.id, (current) => ({
-                                ...current,
-                                extractedPrice: event.target.value ? Number(event.target.value) : null
-                              }))
-                            }
-                            className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                            disabled={!canReview}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-                        <p>{tr(language, "Suggested:", "建议：")} {formatCategoryLabel(line.suggestedCategory)} • {formatCategoryLabel(line.suggestedStorageLocation)}</p>
-                        <p className="mt-1">{tr(language, "Suggested expiration:", "建议保质期：")} {formatSuggestedDate(line.suggestedExpirationDate)}</p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        <p className="text-xs font-medium">{tr(language, "Status:", "状态：")} {line.lineStatus}</p>
-                        <Button type="button" size="sm" variant="outline" onClick={() => saveCorrection(line)}>
-                          {tr(language, "This is correct", "这项正确")}
-                        </Button>
-                        <Button type="button" size="sm" variant="outline" onClick={() => rejectLine(line.id)}>
-                          {tr(language, "Ignore item", "忽略此项")}
-                        </Button>
-                        <Button type="button" size="sm" variant="outline" onClick={() => rejectLine(line.id, true)}>
-                          {tr(language, "Not food", "非食材")}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="hidden overflow-x-auto rounded-lg border md:block">
-                <table className="w-full min-w-[880px] border-collapse">
-                  <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      <th className="px-3 py-2">{tr(language, "Include", "包含")}</th>
-                      <th className="px-3 py-2">{tr(language, "Item Name", "食材名称")}</th>
-                      <th className="px-3 py-2">{tr(language, "Quantity", "数量")}</th>
-                      <th className="px-3 py-2">{tr(language, "Unit", "单位")}</th>
-                      <th className="px-3 py-2">{tr(language, "Price", "价格")}</th>
-                      <th className="px-3 py-2">{tr(language, "Confidence", "置信度")}</th>
-                      <th className="px-3 py-2">{tr(language, "Status", "状态")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {results.map((line) => (
-                      <tr key={line.id} className="border-t align-top">
-                        <td className="px-3 py-2">
-                          <input type="checkbox" checked={selectedIds.includes(line.id)} onChange={() => toggleSelected(line.id)} />
-                        </td>
-                        <td className="px-3 py-2">
-                          <p className="mb-1 text-xs font-medium text-foreground">{getPrimaryName(language, line)}</p>
-                          {line.needsReview ? <p className="mb-1 text-xs text-warning">{tr(language, "Possible item - needs review", "可能是该食材，需要确认")}</p> : null}
-                          <input
-                            value={line.extractedName}
-                            onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedName: event.target.value }))}
-                            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                            disabled={!canReview}
-                          />
-                          <p className="mt-1 text-xs text-muted-foreground">{tr(language, "Original receipt text:", "小票原文：")} {line.rawName ?? line.rawLine ?? "N/A"}</p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <Button type="button" size="sm" variant="outline" onClick={() => saveCorrection(line)}>
-                              {tr(language, "This is correct", "这项正确")}
-                            </Button>
-                            <Button type="button" size="sm" variant="outline" onClick={() => rejectLine(line.id)}>
-                              {tr(language, "Ignore item", "忽略此项")}
-                            </Button>
-                            <Button type="button" size="sm" variant="outline" onClick={() => rejectLine(line.id, true)}>
-                              {tr(language, "Not food", "非食材")}
-                            </Button>
+                    <div className="space-y-2">
+                      {group.lines.map((line) => (
+                        <div key={line.id} className="rounded-xl border bg-background p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <label className="inline-flex items-center gap-2 text-sm font-medium">
+                              <input type="checkbox" checked={selectedIds.includes(line.id)} onChange={() => toggleSelected(line.id)} aria-label={`Include ${line.extractedName}`} />
+                              {tr(language, "Include item", "包含此项")}
+                            </label>
+                            <div className="flex flex-wrap justify-end gap-2 text-[11px]">
+                              <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground">
+                                {line.confidence != null ? `${Math.round(line.confidence * 100)}% ${tr(language, "confidence", "置信度")}` : tr(language, "No confidence", "无置信度")}
+                              </span>
+                              {line.needsReview ? <span className="rounded-full bg-warning/15 px-2 py-1 text-warning">{tr(language, "Needs Review", "需要确认")}</span> : null}
+                            </div>
                           </div>
-                        </td>
-                        <td className="px-3 py-2">
-                          <input type="number" min="0" step="0.01" value={line.extractedQuantity ?? ""} onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedQuantity: event.target.value ? Number(event.target.value) : null }))} className="h-9 w-24 rounded-md border border-input bg-background px-3 text-sm" disabled={!canReview} />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input value={line.extractedUnit ?? ""} onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedUnit: event.target.value || null }))} className="h-9 w-24 rounded-md border border-input bg-background px-3 text-sm" disabled={!canReview} />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input type="number" min="0" step="0.01" value={line.extractedPrice ?? ""} onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedPrice: event.target.value ? Number(event.target.value) : null }))} className="h-9 w-24 rounded-md border border-input bg-background px-3 text-sm" disabled={!canReview} />
-                        </td>
-                        <td className="px-3 py-2 text-xs text-muted-foreground">{line.confidence != null ? line.confidence.toFixed(2) : "N/A"}</td>
-                        <td className="px-3 py-2 text-xs font-medium">{line.lineStatus}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+
+                          <div className="mt-2 rounded-lg border bg-muted/20 px-3 py-2">
+                            <p className="text-sm font-semibold text-foreground">{getPrimaryName(language, line)}</p>
+                            {line.needsReview ? <p className="mt-1 text-xs text-warning">{tr(language, "Possible item - needs review", "可能是：需要确认")}</p> : null}
+                            <p className="mt-1 text-xs text-muted-foreground">{tr(language, "Original receipt text:", "小票原文：")} {line.rawName ?? line.rawLine ?? "N/A"}</p>
+                          </div>
+
+                          <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                            <input
+                              value={line.extractedName}
+                              onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedName: event.target.value }))}
+                              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm md:col-span-2"
+                              placeholder={tr(language, "Edit name", "修改名称")}
+                              disabled={!canReview}
+                            />
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={line.extractedQuantity ?? ""}
+                              onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedQuantity: event.target.value ? Number(event.target.value) : null }))}
+                              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                              placeholder={tr(language, "Qty", "数量")}
+                              disabled={!canReview}
+                            />
+                            <input
+                              value={line.extractedUnit ?? ""}
+                              onChange={(event) => updateLine(line.id, (current) => ({ ...current, extractedUnit: event.target.value || null }))}
+                              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                              placeholder={tr(language, "Unit", "单位")}
+                              disabled={!canReview}
+                            />
+                          </div>
+
+                          <p className="mt-2 text-xs text-muted-foreground">{formatCategoryLabel(line.suggestedCategory)} • {formatCategoryLabel(line.suggestedStorageLocation)} • {tr(language, "Suggested expiration:", "建议保质期：")} {formatSuggestedDate(line.suggestedExpirationDate)}</p>
+
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Button type="button" size="sm" variant="outline" onClick={() => saveCorrection(line)}>{tr(language, "Correct", "正确")}</Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => rejectLine(line.id)}>{tr(language, "Ignore", "忽略")}</Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => rejectLine(line.id, true)}>{tr(language, "Not food", "不是食物")}</Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ))}
               </div>
             </>
           ) : null}

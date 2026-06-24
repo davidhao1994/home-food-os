@@ -35,6 +35,7 @@ type CanonicalEntry = {
 const TOKEN_ALIASES: Record<string, string> = {
   org: "organic",
   frzn: "frozen",
+  frozen: "frozen",
   bnls: "boneless",
   sknls: "skinless",
   wt: "weight",
@@ -57,6 +58,7 @@ const TOKEN_ALIASES: Record<string, string> = {
   mlk: "milk",
   ygrt: "yogurt",
   ygt: "yogurt",
+  ygr: "yogurt",
   grk: "greek",
   tom: "tomato",
   broc: "broccoli",
@@ -70,6 +72,7 @@ const TOKEN_ALIASES: Record<string, string> = {
   avo: "avocado",
   sds: "seeds",
   sf: "sunflower",
+  sfd: "sunflower",
   rnch: "ranch",
   chps: "chips",
   crkr: "crackers",
@@ -86,15 +89,19 @@ const NOISE_TOKENS = new Set([
   "subtotal",
   "total",
   "tax",
+  "change",
   "balance",
   "visa",
   "mastercard",
+  "master",
   "cashback",
   "coupon",
   "reward",
   "member",
   "phone",
   "transaction",
+  "date",
+  "time",
   "id",
   "store",
   "address",
@@ -105,8 +112,15 @@ const NOISE_TOKENS = new Set([
 
 const CANONICAL_ENTRIES: CanonicalEntry[] = [
   {
+    phrase: "organic broccoli florets",
+    aliases: ["org broc floret", "org broc florets", "organic broccoli", "broccoli florets"],
+    displayName: "Organic Broccoli Florets",
+    displayNameZh: "有机西兰花",
+    category: ItemCategory.VEGETABLES
+  },
+  {
     phrase: "ranch sunflower seeds",
-    aliases: ["jmbo rnch sf sds", "jumbo ranch sunflower seeds", "sunflower seeds ranch"],
+    aliases: ["jmbo rnch sf sds", "bv jmbo rnch sf sds", "sf sds", "jumbo ranch sunflower seeds", "sunflower seeds ranch"],
     displayName: "Ranch Sunflower Seeds",
     displayNameZh: "牧场味葵花籽",
     category: ItemCategory.SNACKS
@@ -354,6 +368,51 @@ function guessCategory(normalizedName: string) {
   return ItemCategory.OTHER;
 }
 
+const WORD_TO_ZH: Record<string, string> = {
+  organic: "有机",
+  frozen: "冷冻",
+  boneless: "去骨",
+  skinless: "去皮",
+  chicken: "鸡肉",
+  breast: "鸡胸肉",
+  beef: "牛肉",
+  pork: "猪肉",
+  salmon: "三文鱼",
+  shrimp: "虾",
+  yogurt: "酸奶",
+  greek: "希腊",
+  tomato: "番茄",
+  roma: "罗马",
+  broccoli: "西兰花",
+  florets: "小朵",
+  sunflower: "葵花",
+  seeds: "籽",
+  ranch: "牧场味",
+  egg: "鸡蛋",
+  eggs: "鸡蛋",
+  milk: "牛奶",
+  scallion: "葱",
+  onion: "洋葱",
+  tofu: "豆腐",
+  noodle: "面条",
+  noodles: "面条",
+  rice: "米饭",
+  potato: "土豆"
+};
+
+function toChineseCandidate(tokens: string[]) {
+  const translated = tokens
+    .map((token) => WORD_TO_ZH[token])
+    .filter((part): part is string => Boolean(part));
+
+  if (translated.length === 0) {
+    return "";
+  }
+
+  const phrase = translated.join("");
+  return phrase.length > 20 ? `${phrase.slice(0, 20)}...` : phrase;
+}
+
 function cleanRawText(rawName: string) {
   return rawName
     .replace(/[\$]?\d+[.,]\d{2}\b/g, " ")
@@ -405,6 +464,7 @@ export function normalizeReceiptItemName(rawName: string, learningStore: Grocery
 
   const expandedTokens = tokenizeAndExpand(cleaned || raw);
   const normalizedName = normalizeFoodName(expandedTokens.join(" "));
+  const chineseCandidate = toChineseCandidate(expandedTokens);
 
   let bestEntry: CanonicalEntry | null = null;
   let bestScore = 0;
@@ -422,7 +482,7 @@ export function normalizeReceiptItemName(rawName: string, learningStore: Grocery
 
   const fallbackDisplay = titleCase(normalizedName || normalizeFoodName(raw) || "Unknown Item");
   const displayName = bestEntry && bestScore >= 0.7 ? bestEntry.displayName : fallbackDisplay;
-  const displayNameZh = bestEntry && bestScore >= 0.7 ? bestEntry.displayNameZh : fallbackDisplay;
+  const displayNameZh = bestEntry && bestScore >= 0.7 ? bestEntry.displayNameZh : chineseCandidate || fallbackDisplay;
   const category = bestEntry && bestScore >= 0.7 ? bestEntry.category : guessCategory(normalizedName);
 
   const tokenQualityBoost = expandedTokens.some((token) => TOKEN_ALIASES[token] || Object.values(TOKEN_ALIASES).includes(token)) ? 0.06 : 0;
@@ -440,7 +500,7 @@ export function normalizeReceiptItemName(rawName: string, learningStore: Grocery
     aliases: bestEntry ? [raw, ...bestEntry.aliases].slice(0, 8) : [raw],
     needsReview,
     possibleDisplayName: needsReview ? displayName : undefined,
-    possibleDisplayNameZh: needsReview ? displayNameZh : undefined
+    possibleDisplayNameZh: needsReview ? `${displayNameZh}（需要确认）` : undefined
   };
 }
 

@@ -26,7 +26,7 @@ export function AppShell({ children }: AppShellProps) {
         </aside>
 
         <div className="relative z-0 flex min-h-screen min-w-0 flex-1 flex-col isolate">
-          <header className="sticky top-0 z-30 border-b bg-background/90 px-4 pb-3 pt-[max(env(safe-area-inset-top),1rem)] backdrop-blur md:hidden">
+          <header className="sticky top-0 z-[40] border-b bg-background/90 px-4 pb-3 pt-[max(env(safe-area-inset-top),1rem)] backdrop-blur md:hidden">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">Daily Food Assistant</p>
@@ -39,7 +39,7 @@ export function AppShell({ children }: AppShellProps) {
             </div>
           </header>
 
-          <main className="relative z-0 min-w-0 flex-1 p-4 pb-[calc(env(safe-area-inset-bottom)+9.5rem)] md:p-8 md:pb-8">{children}</main>
+          <main className="relative z-0 min-w-0 flex-1 p-4 pb-[calc(env(safe-area-inset-bottom)+11rem)] md:p-8 md:pb-8">{children}</main>
           <NavLinks mode="mobile" showProfile={showProfile} />
         </div>
       </div>
